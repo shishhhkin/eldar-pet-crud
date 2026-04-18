@@ -1,6 +1,10 @@
 import asyncio
 from logging.config import fileConfig
-from src.models.users import Base
+
+# Импортируем пакет models целиком: его __init__.py стягивает все модели,
+# регистрируя их в Base.metadata. Без этого alembic autogenerate увидит
+# только те таблицы, модули которых уже были импортированы где-то ещё.
+from src.models import Base  # noqa: F401
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection

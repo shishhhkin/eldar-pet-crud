@@ -1,0 +1,6 @@
+# Единая точка импорта для alembic: импортируя пакет `src.models`, мы гарантируем,
+# что все модели зарегистрировались в Base.metadata (иначе autogenerate их не увидит).
+from src.models.base import Base
+from src.models.users import UserModel
+
+__all__ = ['Base', 'UserModel']

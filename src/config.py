@@ -1,11 +1,38 @@
-import os
+# --- Устаревший вариант (pydantic v1 стиль внутри pydantic-settings v2) ---
+# import os
+#
+# from pydantic import PostgresDsn, Field
+# from pydantic_settings import BaseSettings
+#
+#
+# class Settings(BaseSettings):
+#     postgres_url: PostgresDsn = Field(env='postgres_url')
+#     # Параметр `env=` в Field удалён в pydantic v2.
+#     # Вложенный `class Config` заменён на `model_config = SettingsConfigDict(...)`.
+#
+#     class Config:
+#         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+# --------------------------------------------------------------------------
 
-from pydantic import PostgresDsn, Field
-from pydantic_settings import BaseSettings
+# Актуальный подход: pydantic v2 + pydantic-settings v2.
+# - `model_config = SettingsConfigDict(...)` вместо вложенного class Config
+# - pathlib.Path вместо os.path.join/dirname
+# - имя переменной окружения определяется по имени поля (case_insensitive),
+#   а если нужен явный alias — используется validation_alias, а не удалённый env=.
+from pathlib import Path
+
+from pydantic import PostgresDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_FILE = Path(__file__).resolve().parent.parent / '.env'
 
 
 class Settings(BaseSettings):
-    postgres_url: PostgresDsn = Field(env='postgres_url')
+    postgres_url: PostgresDsn
 
-    class Config:
-        env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore',
+    )
