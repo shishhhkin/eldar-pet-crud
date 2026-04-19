@@ -30,12 +30,13 @@
 # - CORSMiddleware импортируется из fastapi.middleware.cors (канонический путь).
 # - Модули импортируются от корня пакета `src.*`, это устойчиво к CWD/reload.
 # - Жизненный цикл приложения управляется через `lifespan` (on_event устарел).
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.controllers.users import router as users_router
 from src.healthcheck.router import router as healthcheck_router
 
 
@@ -70,5 +71,6 @@ def get_app() -> FastAPI:
         allow_headers=['*'],
     )
     app.include_router(healthcheck_router)
+    app.include_router(users_router)
 
     return app

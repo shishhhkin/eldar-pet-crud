@@ -48,6 +48,7 @@
 #   `async with session.begin():` в сервисе/репозитории или session.commit() в ручке.
 #   Откат при исключении гарантирует `async with SessionFactory()` — он сам закроет сессию.
 from collections.abc import AsyncIterator
+from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import (
@@ -56,7 +57,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from typing_extensions import Annotated
 
 from src.config import Settings
 
