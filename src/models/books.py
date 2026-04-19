@@ -7,9 +7,11 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
+from src.models.book_genres import book_genres
 
 if TYPE_CHECKING:
     from src.models.authors import AuthorModel
+    from src.models.genres import GenreModel
 
 
 class BookModel(Base):
@@ -24,3 +26,7 @@ class BookModel(Base):
     )
 
     author: Mapped[AuthorModel] = relationship(back_populates='books')
+    genres: Mapped[list[GenreModel]] = relationship(
+        secondary=book_genres,
+        back_populates='books',
+    )
