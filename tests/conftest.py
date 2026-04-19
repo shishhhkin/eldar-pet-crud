@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -10,14 +11,38 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from src.application import get_app
+from src.config import Settings
 from src.db import get_session
 from src.models import Base
 
-TEST_DATABASE_URL = 'postgresql+asyncpg://postgres:123456@localhost:15432/postgres_test'
+_settings = Settings()  # type: ignore[call-arg]
+TEST_DB_NAME = f'{_settings.postgres_db}_test'
+_DSN_BASE = (
+    f'postgresql+asyncpg://{_settings.postgres_user}:{_settings.postgres_password}'
+    f'@{_settings.postgres_host}:{_settings.postgres_port}'
+)
+TEST_DATABASE_URL = f'{_DSN_BASE}/{TEST_DB_NAME}'
+_ADMIN_DATABASE_URL = f'{_DSN_BASE}/{_settings.postgres_db}'
+
+
+@pytest.fixture(scope='session', autouse=True)
+async def ensure_test_database() -> None:
+    """Создаёт БД для тестов, если её ещё нет. CREATE DATABASE требует AUTOCOMMIT."""
+    admin = create_async_engine(_ADMIN_DATABASE_URL, isolation_level='AUTOCOMMIT')
+    try:
+        async with admin.connect() as conn:
+            exists = await conn.scalar(
+                text('SELECT 1 FROM pg_database WHERE datname = :name'),
+                {'name': TEST_DB_NAME},
+            )
+            if not exists:
+                await conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
+    finally:
+        await admin.dispose()
 
 
 @pytest.fixture(scope='session')
-async def engine() -> AsyncIterator[AsyncEngine]:
+async def engine(ensure_test_database: None) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     yield engine
     await engine.dispose()
