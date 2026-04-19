@@ -22,6 +22,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+extend-exclude = ["alembic"]
 
 [tool.ruff.format]
 quote-style = "single"
