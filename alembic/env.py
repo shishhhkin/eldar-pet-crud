@@ -4,6 +4,7 @@ from logging.config import fileConfig
 # Импортируем пакет models целиком: его __init__.py стягивает все модели,
 # регистрируя их в Base.metadata. Без этого alembic autogenerate увидит
 # только те таблицы, модули которых уже были импортированы где-то ещё.
+from src.config import Settings
 from src.models import Base  # noqa: F401
 
 from sqlalchemy import pool
@@ -15,6 +16,10 @@ from alembic import context
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Единый источник URL базы — Settings (postgres_url из env/.env),
+# чтобы приложение и миграции не расходились по конфигурации.
+config.set_main_option('sqlalchemy.url', str(Settings().postgres_url))  # type: ignore[call-arg]
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
