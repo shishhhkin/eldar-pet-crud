@@ -110,7 +110,7 @@ wheels = [
 ]
 
 [[package]]
-name = "eldar-sozvon"
+name = "eldar-pet-crud"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -1,24 +1,3 @@
-# --- Устаревший вариант (pydantic v1 стиль внутри pydantic-settings v2) ---
-# import os
-#
-# from pydantic import PostgresDsn, Field
-# from pydantic_settings import BaseSettings
-#
-#
-# class Settings(BaseSettings):
-#     postgres_url: PostgresDsn = Field(env='postgres_url')
-#     # Параметр `env=` в Field удалён в pydantic v2.
-#     # Вложенный `class Config` заменён на `model_config = SettingsConfigDict(...)`.
-#
-#     class Config:
-#         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-# --------------------------------------------------------------------------
-
-# Актуальный подход: pydantic v2 + pydantic-settings v2.
-# - `model_config = SettingsConfigDict(...)` вместо вложенного class Config
-# - pathlib.Path вместо os.path.join/dirname
-# - имя переменной окружения определяется по имени поля (case_insensitive),
-#   а если нужен явный alias — используется validation_alias, а не удалённый env=.
 from pathlib import Path
 
 from pydantic import PostgresDsn, computed_field
