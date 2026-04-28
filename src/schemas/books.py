@@ -21,8 +21,6 @@ class BookUpdate(BaseModel):
 
 
 class BookRead(BaseModel):
-    """FK (author_id) в ответе не светим — отдаём вложенные author и genres."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID

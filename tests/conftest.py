@@ -27,7 +27,6 @@ _ADMIN_DATABASE_URL = f'{_DSN_BASE}/{_settings.postgres_db}'
 
 @pytest.fixture(scope='session', autouse=True)
 async def ensure_test_database() -> None:
-    """Создаёт БД для тестов, если её ещё нет. CREATE DATABASE требует AUTOCOMMIT."""
     admin = create_async_engine(_ADMIN_DATABASE_URL, isolation_level='AUTOCOMMIT')
     try:
         async with admin.connect() as conn:

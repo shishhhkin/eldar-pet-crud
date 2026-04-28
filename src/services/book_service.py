@@ -21,9 +21,6 @@ async def _get_loaded(session: AsyncSession, book_id: UUID) -> BookModel | None:
 async def _load_genres(
     session: AsyncSession, genre_ids: list[UUID]
 ) -> list[GenreModel]:
-    """Подгружает жанры по списку id. Если какого-то id нет в БД — поднимаем
-    ValueError: контроллер отдаст 422. Без этой проверки полусуществующий
-    список тихо усечётся при привязке."""
     if not genre_ids:
         return []
     unique_ids = list(set(genre_ids))
