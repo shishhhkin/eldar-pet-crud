@@ -37,7 +37,10 @@ async def test_read_author_not_found(client: AsyncClient) -> None:
     response = await client.get(f'/authors/{uuid4()}')
 
     assert response.status_code == 404
-    assert response.json() == {'detail': 'Author not found'}
+    body = response.json()
+    assert body['code'] == 'not_found'
+    assert 'not found' in body['detail']
+    assert body['request_id']
 
 
 async def test_update_author(client: AsyncClient) -> None:

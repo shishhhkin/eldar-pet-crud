@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.application import get_app
 from src.config import Settings
-from src.db import get_session
+from src.db import get_session, get_tx_session
 from src.models import Base
 
 _settings = Settings()  # type: ignore[call-arg]
@@ -70,7 +70,12 @@ async def client(
         async with session_factory() as session:
             yield session
 
+    async def override_get_tx_session() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session, session.begin():
+            yield session
+
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_tx_session] = override_get_tx_session
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test') as ac:

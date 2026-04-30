@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.exceptions import UserNotFound
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
 from src.schemas.users import UserCreate, UserUpdate
@@ -30,16 +31,19 @@ async def create_user(session: AsyncSession, payload: UserCreate) -> UserModel:
     return user
 
 
-async def get_user(session: AsyncSession, user_id: UUID) -> UserModel | None:
-    return await _get_with_profile(session, user_id)
+async def get_user(session: AsyncSession, user_id: UUID) -> UserModel:
+    user = await _get_with_profile(session, user_id)
+    if user is None:
+        raise UserNotFound(user_id)
+    return user
 
 
 async def update_user(
     session: AsyncSession, user_id: UUID, payload: UserUpdate
-) -> UserModel | None:
+) -> UserModel:
     user = await _get_with_profile(session, user_id)
     if user is None:
-        return None
+        raise UserNotFound(user_id)
 
     user.username = payload.username
     user.email = payload.email
@@ -59,10 +63,9 @@ async def update_user(
     return user
 
 
-async def delete_user(session: AsyncSession, user_id: UUID) -> bool:
+async def delete_user(session: AsyncSession, user_id: UUID) -> None:
     user = await session.get(UserModel, user_id)
     if user is None:
-        return False
+        raise UserNotFound(user_id)
     await session.delete(user)
     await session.flush()
-    return True

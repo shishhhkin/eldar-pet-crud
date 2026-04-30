@@ -25,7 +25,10 @@ async def test_read_genre_not_found(client: AsyncClient) -> None:
     response = await client.get(f'/genres/{uuid4()}')
 
     assert response.status_code == 404
-    assert response.json() == {'detail': 'Genre not found'}
+    body = response.json()
+    assert body['code'] == 'not_found'
+    assert 'not found' in body['detail']
+    assert body['request_id']
 
 
 async def test_update_genre(client: AsyncClient) -> None:

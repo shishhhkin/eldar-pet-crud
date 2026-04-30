@@ -30,4 +30,10 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+async def get_tx_session() -> AsyncIterator[AsyncSession]:
+    async with SessionFactory() as session, session.begin():
+        yield session
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+TxSessionDep = Annotated[AsyncSession, Depends(get_tx_session)]
