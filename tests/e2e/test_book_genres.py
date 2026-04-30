@@ -41,9 +41,7 @@ async def test_create_book_with_genres(client: AsyncClient) -> None:
 async def test_create_book_without_genres_defaults_empty(client: AsyncClient) -> None:
     author = await _create_author(client)
 
-    response = await client.post(
-        '/books', json={'title': 't', 'author_id': author['id']}
-    )
+    response = await client.post('/books', json={'title': 't', 'author_id': author['id']})
 
     assert response.status_code == 201
     assert response.json()['genres'] == []

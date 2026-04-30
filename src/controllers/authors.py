@@ -9,6 +9,7 @@ from src.services import author_service
 router = APIRouter(prefix='/authors', tags=['authors'])
 
 
+# path нельзя убирать :(
 @router.post('', response_model=AuthorRead, status_code=status.HTTP_201_CREATED)
 async def create_author(payload: AuthorCreate, session: SessionDep) -> AuthorRead:
     async with session.begin():
@@ -25,9 +26,7 @@ async def read_author(author_id: UUID, session: SessionDep) -> AuthorRead:
 
 
 @router.put('/{author_id}', response_model=AuthorRead)
-async def update_author(
-    author_id: UUID, payload: AuthorUpdate, session: SessionDep
-) -> AuthorRead:
+async def update_author(author_id: UUID, payload: AuthorUpdate, session: SessionDep) -> AuthorRead:
     async with session.begin():
         author = await author_service.update_author(session, author_id, payload)
     if author is None:

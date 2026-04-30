@@ -25,9 +25,7 @@ async def read_genre(genre_id: UUID, session: SessionDep) -> GenreRead:
 
 
 @router.put('/{genre_id}', response_model=GenreRead)
-async def update_genre(
-    genre_id: UUID, payload: GenreUpdate, session: SessionDep
-) -> GenreRead:
+async def update_genre(genre_id: UUID, payload: GenreUpdate, session: SessionDep) -> GenreRead:
     async with session.begin():
         genre = await genre_service.update_genre(session, genre_id, payload)
     if genre is None:

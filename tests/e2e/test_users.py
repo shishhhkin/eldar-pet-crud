@@ -104,21 +104,15 @@ async def test_delete_user_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-async def test_delete_cascades_profile(
-    client: AsyncClient, db_session: AsyncSession
-) -> None:
+async def test_delete_cascades_profile(client: AsyncClient, db_session: AsyncSession) -> None:
     created = (await client.post('/users', json=_payload())).json()
 
-    count_before = await db_session.scalar(
-        select(func.count()).select_from(UserProfileModel)
-    )
+    count_before = await db_session.scalar(select(func.count()).select_from(UserProfileModel))
     assert count_before == 1
 
     await client.delete(f'/users/{created["id"]}')
 
-    count_after = await db_session.scalar(
-        select(func.count()).select_from(UserProfileModel)
-    )
+    count_after = await db_session.scalar(select(func.count()).select_from(UserProfileModel))
     assert count_after == 0
 
 
@@ -129,9 +123,7 @@ async def test_create_user_invalid_email(client: AsyncClient) -> None:
 
 
 async def test_create_user_missing_profile(client: AsyncClient) -> None:
-    response = await client.post(
-        '/users', json={'username': 'bob', 'email': 'bob@example.com'}
-    )
+    response = await client.post('/users', json={'username': 'bob', 'email': 'bob@example.com'})
 
     assert response.status_code == 422
 

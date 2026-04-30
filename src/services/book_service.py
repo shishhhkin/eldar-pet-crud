@@ -18,9 +18,7 @@ async def _get_loaded(session: AsyncSession, book_id: UUID) -> BookModel | None:
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def _load_genres(
-    session: AsyncSession, genre_ids: list[UUID]
-) -> list[GenreModel]:
+async def _load_genres(session: AsyncSession, genre_ids: list[UUID]) -> list[GenreModel]:
     if not genre_ids:
         return []
     unique_ids = list(set(genre_ids))

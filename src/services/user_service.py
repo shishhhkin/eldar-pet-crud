@@ -10,11 +10,7 @@ from src.schemas.users import UserCreate, UserUpdate
 
 
 async def _get_with_profile(session: AsyncSession, user_id: UUID) -> UserModel | None:
-    stmt = (
-        select(UserModel)
-        .where(UserModel.id == user_id)
-        .options(selectinload(UserModel.profile))
-    )
+    stmt = select(UserModel).where(UserModel.id == user_id).options(selectinload(UserModel.profile))
     return (await session.execute(stmt)).scalar_one_or_none()
 
 

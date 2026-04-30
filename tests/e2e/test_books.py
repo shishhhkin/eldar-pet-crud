@@ -16,9 +16,7 @@ async def _create_author(client: AsyncClient, name: str = 'Лев Толстой
 async def test_create_book(client: AsyncClient) -> None:
     author = await _create_author(client)
 
-    response = await client.post(
-        '/books', json={'title': 'Война и мир', 'author_id': author['id']}
-    )
+    response = await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
 
     assert response.status_code == 201
     body = response.json()
@@ -31,9 +29,7 @@ async def test_create_book(client: AsyncClient) -> None:
 async def test_read_book(client: AsyncClient) -> None:
     author = await _create_author(client)
     created = (
-        await client.post(
-            '/books', json={'title': 'Война и мир', 'author_id': author['id']}
-        )
+        await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
     ).json()
 
     response = await client.get(f'/books/{created["id"]}')
@@ -53,9 +49,7 @@ async def test_update_book_reassigns_author(client: AsyncClient) -> None:
     author1 = await _create_author(client, name='Толстой')
     author2 = await _create_author(client, name='Достоевский')
     created = (
-        await client.post(
-            '/books', json={'title': 'Старое название', 'author_id': author1['id']}
-        )
+        await client.post('/books', json={'title': 'Старое название', 'author_id': author1['id']})
     ).json()
 
     response = await client.put(
@@ -83,9 +77,7 @@ async def test_update_book_not_found(client: AsyncClient) -> None:
 async def test_delete_book(client: AsyncClient) -> None:
     author = await _create_author(client)
     created = (
-        await client.post(
-            '/books', json={'title': 'Война и мир', 'author_id': author['id']}
-        )
+        await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
     ).json()
 
     response = await client.delete(f'/books/{created["id"]}')
@@ -101,9 +93,7 @@ async def test_delete_book_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-async def test_delete_author_cascades_books(
-    client: AsyncClient, db_session: AsyncSession
-) -> None:
+async def test_delete_author_cascades_books(client: AsyncClient, db_session: AsyncSession) -> None:
     author = await _create_author(client)
     await client.post('/books', json={'title': 'Первая', 'author_id': author['id']})
     await client.post('/books', json={'title': 'Вторая', 'author_id': author['id']})
@@ -118,25 +108,19 @@ async def test_delete_author_cascades_books(
 
 
 async def test_create_book_with_unknown_author(client: AsyncClient) -> None:
-    response = await client.post(
-        '/books', json={'title': 'Сиротка', 'author_id': str(uuid4())}
-    )
+    response = await client.post('/books', json={'title': 'Сиротка', 'author_id': str(uuid4())})
 
     assert response.status_code == 409
 
 
 async def test_create_book_empty_title(client: AsyncClient) -> None:
     author = await _create_author(client)
-    response = await client.post(
-        '/books', json={'title': '', 'author_id': author['id']}
-    )
+    response = await client.post('/books', json={'title': '', 'author_id': author['id']})
 
     assert response.status_code == 422
 
 
 async def test_create_book_invalid_author_id(client: AsyncClient) -> None:
-    response = await client.post(
-        '/books', json={'title': 'x', 'author_id': 'not-a-uuid'}
-    )
+    response = await client.post('/books', json={'title': 'x', 'author_id': 'not-a-uuid'})
 
     assert response.status_code == 422
