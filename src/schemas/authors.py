@@ -1,30 +1,26 @@
 from __future__ import annotations
 
-from uuid import UUID
+from pydantic import BaseModel, Field
 
-from pydantic import BaseModel, ConfigDict, Field
+from src.schemas.base import IdentifiedRead
 
 
-class AuthorCreate(BaseModel):
+class AuthorBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     bio: str | None = None
 
 
-class AuthorUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    bio: str | None = None
+class AuthorCreate(AuthorBase):
+    pass
 
 
-class AuthorShortRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class AuthorUpdate(AuthorBase):
+    pass
 
-    id: UUID
+
+class AuthorShortRead(IdentifiedRead):
     name: str
 
 
-class AuthorRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    bio: str | None
+class AuthorRead(IdentifiedRead, AuthorBase):
+    pass

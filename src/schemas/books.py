@@ -2,28 +2,28 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from src.schemas.authors import AuthorShortRead
-from src.schemas.genres import GenreShortRead
+from src.schemas.base import IdentifiedRead
+from src.schemas.genres import GenreRead
 
 
-class BookCreate(BaseModel):
+class BookBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     author_id: UUID
     genre_ids: list[UUID] = Field(default_factory=list)
 
 
-class BookUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
-    author_id: UUID
-    genre_ids: list[UUID] = Field(default_factory=list)
+class BookCreate(BookBase):
+    pass
 
 
-class BookRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class BookUpdate(BookBase):
+    pass
 
-    id: UUID
+
+class BookRead(IdentifiedRead):
     title: str
     author: AuthorShortRead
-    genres: list[GenreShortRead]
+    genres: list[GenreRead]

@@ -1,27 +1,21 @@
 from __future__ import annotations
 
-from uuid import UUID
+from pydantic import BaseModel, Field
 
-from pydantic import BaseModel, ConfigDict, Field
+from src.schemas.base import IdentifiedRead
 
 
-class GenreCreate(BaseModel):
+class GenreBase(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
-class GenreUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
+class GenreCreate(GenreBase):
+    pass
 
 
-class GenreShortRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
+class GenreUpdate(GenreBase):
+    pass
 
 
-class GenreRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
+class GenreRead(IdentifiedRead):
     name: str
