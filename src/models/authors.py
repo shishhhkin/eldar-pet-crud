@@ -6,13 +6,13 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import Base
+from src.models.base import AnalyticsMixin, Base
 
 if TYPE_CHECKING:
     from src.models.books import BookModel
 
 
-class AuthorModel(Base):
+class AuthorModel(AnalyticsMixin, Base):
     __tablename__ = 'authors'
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)

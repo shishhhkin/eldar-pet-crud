@@ -1,8 +1,8 @@
 """initial
 
-Revision ID: 644988bceb3a
+Revision ID: 1145a789c15d
 Revises: 
-Create Date: 2026-04-28 17:20:59.443196
+Create Date: 2026-04-30 23:41:13.765199
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '644988bceb3a'
+revision: str = '1145a789c15d'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,11 +25,17 @@ def upgrade() -> None:
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('bio', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_authors'))
     )
     op.create_table('genres',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_genres')),
     sa.UniqueConstraint('name', name=op.f('uq_genres_name'))
     )
@@ -38,6 +44,8 @@ def upgrade() -> None:
     sa.Column('username', sa.String(length=64), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users')),
     sa.UniqueConstraint('email', name=op.f('uq_users_email')),
     sa.UniqueConstraint('username', name=op.f('uq_users_username'))
@@ -46,6 +54,9 @@ def upgrade() -> None:
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('author_id', sa.Uuid(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.ForeignKeyConstraint(['author_id'], ['authors.id'], name=op.f('fk_books_author_id_authors'), onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_books'))
     )
@@ -55,6 +66,9 @@ def upgrade() -> None:
     sa.Column('avatar_url', sa.String(length=512), nullable=True),
     sa.Column('bio', sa.Text(), nullable=True),
     sa.Column('socials', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('is_deleted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_user_profiles_user_id_users'), onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_user_profiles')),
     sa.UniqueConstraint('user_id', name=op.f('uq_user_profiles_user_id'))

@@ -7,13 +7,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import Base
+from src.models.base import AnalyticsMixin, Base
 
 if TYPE_CHECKING:
     from src.models.users import UserModel
 
 
-class UserProfileModel(Base):
+class UserProfileModel(AnalyticsMixin, Base):
     __tablename__ = 'user_profiles'
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)
