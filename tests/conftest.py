@@ -78,7 +78,7 @@ async def client(
     app.dependency_overrides[get_tx_session] = override_get_tx_session
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url='http://test') as ac:
+    async with AsyncClient(transport=transport, base_url='http://test/v1') as ac:
         yield ac
 
     app.dependency_overrides.clear()

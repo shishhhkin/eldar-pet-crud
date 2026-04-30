@@ -2,7 +2,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import APIRouter, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
@@ -82,9 +82,12 @@ def get_app() -> FastAPI:
         )
 
     app.include_router(healthcheck_router)
-    app.include_router(users_router)
-    app.include_router(authors_router)
-    app.include_router(books_router)
-    app.include_router(genres_router)
+
+    v1_router = APIRouter(prefix='/v1')
+    v1_router.include_router(users_router)
+    v1_router.include_router(authors_router)
+    v1_router.include_router(books_router)
+    v1_router.include_router(genres_router)
+    app.include_router(v1_router)
 
     return app
