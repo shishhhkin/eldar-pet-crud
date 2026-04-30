@@ -1,48 +1,29 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from testcontainers.postgres import PostgresContainer
 
 from src.application import get_app
-from src.config import Settings
 from src.db import get_session, get_tx_session
 from src.models import Base
 
-_settings = Settings()  # type: ignore[call-arg]
-TEST_DB_NAME = f'{_settings.postgres_db}_test'
-_DSN_BASE = (
-    f'postgresql+asyncpg://{_settings.postgres_user}:{_settings.postgres_password}'
-    f'@{_settings.postgres_host}:{_settings.postgres_port}'
-)
-TEST_DATABASE_URL = f'{_DSN_BASE}/{TEST_DB_NAME}'
-_ADMIN_DATABASE_URL = f'{_DSN_BASE}/{_settings.postgres_db}'
 
-
-@pytest.fixture(scope='session', autouse=True)
-async def ensure_test_database() -> None:
-    admin = create_async_engine(_ADMIN_DATABASE_URL, isolation_level='AUTOCOMMIT')
-    try:
-        async with admin.connect() as conn:
-            exists = await conn.scalar(
-                text('SELECT 1 FROM pg_database WHERE datname = :name'),
-                {'name': TEST_DB_NAME},
-            )
-            if not exists:
-                await conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
-    finally:
-        await admin.dispose()
+@pytest.fixture(scope='session')
+def postgres_container() -> Iterator[PostgresContainer]:
+    with PostgresContainer('postgres:17-alpine', driver='asyncpg') as container:
+        yield container
 
 
 @pytest.fixture(scope='session')
-async def engine(ensure_test_database: None) -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+async def engine(postgres_container: PostgresContainer) -> AsyncIterator[AsyncEngine]:
+    engine = create_async_engine(postgres_container.get_connection_url(), pool_pre_ping=True)
     yield engine
     await engine.dispose()
 
