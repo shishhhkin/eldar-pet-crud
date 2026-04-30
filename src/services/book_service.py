@@ -34,7 +34,7 @@ async def _load_genres(session: AsyncSession, genre_ids: list[UUID]) -> list[Gen
 
 async def create_book(session: AsyncSession, payload: BookCreate) -> BookModel:
     genres = await _load_genres(session, payload.genre_ids)
-    book = BookModel(title=payload.title, author_id=payload.author_id, genres=genres)
+    book = BookModel(**payload.model_dump(exclude={'genre_ids'}), genres=genres)
     session.add(book)
     await session.flush()
     await session.refresh(book, attribute_names=['author', 'genres'])
@@ -52,8 +52,8 @@ async def update_book(session: AsyncSession, book_id: UUID, payload: BookUpdate)
     book = await _get_loaded(session, book_id)
     if book is None:
         raise BookNotFound(book_id)
-    book.title = payload.title
-    book.author_id = payload.author_id
+    for field, value in payload.model_dump(exclude={'genre_ids'}).items():
+        setattr(book, field, value)
     book.genres = await _load_genres(session, payload.genre_ids)
     await session.flush()
     await session.refresh(book, attribute_names=['author', 'genres'])

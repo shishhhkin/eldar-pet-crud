@@ -19,7 +19,7 @@ async def _get_with_books(session: AsyncSession, author_id: UUID) -> AuthorModel
 
 
 async def create_author(session: AsyncSession, payload: AuthorCreate) -> AuthorModel:
-    author = AuthorModel(name=payload.name, bio=payload.bio)
+    author = AuthorModel(**payload.model_dump())
     session.add(author)
     await session.flush()
     await session.refresh(author, attribute_names=['books'])
@@ -39,8 +39,8 @@ async def update_author(
     author = await _get_with_books(session, author_id)
     if author is None:
         raise AuthorNotFound(author_id)
-    author.name = payload.name
-    author.bio = payload.bio
+    for field, value in payload.model_dump().items():
+        setattr(author, field, value)
     await session.flush()
     return author
 

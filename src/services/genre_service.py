@@ -17,7 +17,7 @@ async def _get_with_books(session: AsyncSession, genre_id: UUID) -> GenreModel |
 
 
 async def create_genre(session: AsyncSession, payload: GenreCreate) -> GenreModel:
-    genre = GenreModel(name=payload.name)
+    genre = GenreModel(**payload.model_dump())
     session.add(genre)
     await session.flush()
     await session.refresh(genre, attribute_names=['books'])
@@ -35,7 +35,8 @@ async def update_genre(session: AsyncSession, genre_id: UUID, payload: GenreUpda
     genre = await _get_with_books(session, genre_id)
     if genre is None:
         raise GenreNotFound(genre_id)
-    genre.name = payload.name
+    for field, value in payload.model_dump().items():
+        setattr(genre, field, value)
     await session.flush()
     return genre
 

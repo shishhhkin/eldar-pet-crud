@@ -16,11 +16,9 @@ async def _get_with_profile(session: AsyncSession, user_id: UUID) -> UserModel |
 
 
 async def create_user(session: AsyncSession, payload: UserCreate) -> UserModel:
-    profile_data = payload.profile.model_dump(mode='json')
     user = UserModel(
-        username=payload.username,
-        email=payload.email,
-        profile=UserProfileModel(**profile_data),
+        **payload.model_dump(mode='json', exclude={'profile'}),
+        profile=UserProfileModel(**payload.profile.model_dump(mode='json')),
     )
     session.add(user)
     await session.flush()
@@ -40,8 +38,8 @@ async def update_user(session: AsyncSession, user_id: UUID, payload: UserUpdate)
     if user is None:
         raise UserNotFound(user_id)
 
-    user.username = payload.username
-    user.email = payload.email
+    for field, value in payload.model_dump(mode='json', exclude={'profile'}).items():
+        setattr(user, field, value)
 
     profile_data = payload.profile.model_dump(mode='json')
     if user.profile is None:
