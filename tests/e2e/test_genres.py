@@ -77,3 +77,44 @@ async def test_create_genre_empty_name(client: AsyncClient) -> None:
     response = await client.post('/genres', json={'name': ''})
 
     assert response.status_code == 422
+
+
+async def test_create_genre_strips_whitespace(client: AsyncClient) -> None:
+    response = await client.post('/genres', json={'name': '  фантастика  '})
+
+    assert response.status_code == 201
+    assert response.json()['name'] == 'фантастика'
+
+
+async def test_create_genre_blank_after_strip(client: AsyncClient) -> None:
+    response = await client.post('/genres', json={'name': '   '})
+
+    assert response.status_code == 422
+
+
+async def test_read_genre_includes_books(client: AsyncClient) -> None:
+    author = (await client.post('/authors', json={'name': 'Лев Толстой', 'bio': None})).json()
+    genre = (await client.post('/genres', json={'name': 'роман'})).json()
+    book = (
+        await client.post(
+            '/books',
+            json={
+                'title': 'Война и мир',
+                'author_id': author['id'],
+                'genre_ids': [genre['id']],
+            },
+        )
+    ).json()
+
+    response = await client.get(f'/genres/{genre["id"]}')
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['books'] == [{'id': book['id'], 'title': book['title']}]
+
+
+async def test_create_genre_returns_empty_books(client: AsyncClient) -> None:
+    response = await client.post('/genres', json={'name': 'фантастика'})
+
+    assert response.status_code == 201
+    assert response.json()['books'] == []

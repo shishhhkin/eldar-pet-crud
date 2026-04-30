@@ -48,9 +48,7 @@ async def get_book(session: AsyncSession, book_id: UUID) -> BookModel:
     return book
 
 
-async def update_book(
-    session: AsyncSession, book_id: UUID, payload: BookUpdate
-) -> BookModel:
+async def update_book(session: AsyncSession, book_id: UUID, payload: BookUpdate) -> BookModel:
     book = await _get_loaded(session, book_id)
     if book is None:
         raise BookNotFound(book_id)

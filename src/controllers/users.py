@@ -20,9 +20,7 @@ async def read_user(user_id: UUID, session: SessionDep) -> UserRead:
 
 
 @router.put('/{user_id}', response_model=UserRead)
-async def update_user(
-    user_id: UUID, payload: UserUpdate, session: TxSessionDep
-) -> UserRead:
+async def update_user(user_id: UUID, payload: UserUpdate, session: TxSessionDep) -> UserRead:
     return await user_service.update_user(session, user_id, payload)  # type: ignore[return-value]
 
 

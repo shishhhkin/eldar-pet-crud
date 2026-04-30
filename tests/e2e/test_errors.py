@@ -12,9 +12,7 @@ async def test_request_id_generated_when_missing(client: AsyncClient) -> None:
 
 
 async def test_request_id_echoed_from_header(client: AsyncClient) -> None:
-    response = await client.get(
-        f'/authors/{uuid4()}', headers={'X-Request-ID': 'trace-abc'}
-    )
+    response = await client.get(f'/authors/{uuid4()}', headers={'X-Request-ID': 'trace-abc'})
 
     assert response.headers['X-Request-ID'] == 'trace-abc'
     assert response.json()['request_id'] == 'trace-abc'

@@ -16,14 +16,11 @@ async def _get_with_profile(session: AsyncSession, user_id: UUID) -> UserModel |
 
 
 async def create_user(session: AsyncSession, payload: UserCreate) -> UserModel:
+    profile_data = payload.profile.model_dump(mode='json')
     user = UserModel(
         username=payload.username,
         email=payload.email,
-        profile=UserProfileModel(
-            avatar_url=payload.profile.avatar_url,
-            bio=payload.profile.bio,
-            socials=payload.profile.socials,
-        ),
+        profile=UserProfileModel(**profile_data),
     )
     session.add(user)
     await session.flush()
@@ -38,9 +35,7 @@ async def get_user(session: AsyncSession, user_id: UUID) -> UserModel:
     return user
 
 
-async def update_user(
-    session: AsyncSession, user_id: UUID, payload: UserUpdate
-) -> UserModel:
+async def update_user(session: AsyncSession, user_id: UUID, payload: UserUpdate) -> UserModel:
     user = await _get_with_profile(session, user_id)
     if user is None:
         raise UserNotFound(user_id)
@@ -48,16 +43,12 @@ async def update_user(
     user.username = payload.username
     user.email = payload.email
 
+    profile_data = payload.profile.model_dump(mode='json')
     if user.profile is None:
-        user.profile = UserProfileModel(
-            avatar_url=payload.profile.avatar_url,
-            bio=payload.profile.bio,
-            socials=payload.profile.socials,
-        )
+        user.profile = UserProfileModel(**profile_data)
     else:
-        user.profile.avatar_url = payload.profile.avatar_url
-        user.profile.bio = payload.profile.bio
-        user.profile.socials = payload.profile.socials
+        for key, value in profile_data.items():
+            setattr(user.profile, key, value)
 
     await session.flush()
     return user

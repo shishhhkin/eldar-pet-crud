@@ -1,21 +1,33 @@
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.exceptions import AuthorNotFound
 from src.models.authors import AuthorModel
 from src.schemas.authors import AuthorCreate, AuthorUpdate
 
 
+async def _get_with_books(session: AsyncSession, author_id: UUID) -> AuthorModel | None:
+    stmt = (
+        select(AuthorModel)
+        .where(AuthorModel.id == author_id)
+        .options(selectinload(AuthorModel.books))
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def create_author(session: AsyncSession, payload: AuthorCreate) -> AuthorModel:
     author = AuthorModel(name=payload.name, bio=payload.bio)
     session.add(author)
     await session.flush()
+    await session.refresh(author, attribute_names=['books'])
     return author
 
 
 async def get_author(session: AsyncSession, author_id: UUID) -> AuthorModel:
-    author = await session.get(AuthorModel, author_id)
+    author = await _get_with_books(session, author_id)
     if author is None:
         raise AuthorNotFound(author_id)
     return author
@@ -24,7 +36,7 @@ async def get_author(session: AsyncSession, author_id: UUID) -> AuthorModel:
 async def update_author(
     session: AsyncSession, author_id: UUID, payload: AuthorUpdate
 ) -> AuthorModel:
-    author = await session.get(AuthorModel, author_id)
+    author = await _get_with_books(session, author_id)
     if author is None:
         raise AuthorNotFound(author_id)
     author.name = payload.name

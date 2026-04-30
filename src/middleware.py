@@ -10,9 +10,7 @@ REQUEST_ID_HEADER = 'X-Request-ID'
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         rid = request.headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex
         token = request_id_var.set(rid)
         request.state.request_id = rid

@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import BaseModel, Field, StringConstraints
 
 from src.schemas.base import IdentifiedRead
+from src.schemas.shorts import AuthorShortRead, BookShortRead
+
+__all__ = [
+    'AuthorBase',
+    'AuthorCreate',
+    'AuthorUpdate',
+    'AuthorShortRead',
+    'AuthorRead',
+]
 
 
 class AuthorBase(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    bio: str | None = None
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+    ]
+    bio: str | None = Field(default=None, max_length=2000)
 
 
 class AuthorCreate(AuthorBase):
@@ -18,9 +32,5 @@ class AuthorUpdate(AuthorBase):
     pass
 
 
-class AuthorShortRead(IdentifiedRead):
-    name: str
-
-
 class AuthorRead(IdentifiedRead, AuthorBase):
-    pass
+    books: list[BookShortRead]

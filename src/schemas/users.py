@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, StringConstraints
 
 from src.schemas.base import IdentifiedRead
 
+SocialHandle = Annotated[str, StringConstraints(min_length=1, max_length=255)]
+SocialKey = Annotated[str, StringConstraints(min_length=1, max_length=32)]
+
 
 class UserProfilePayload(BaseModel):
-    avatar_url: str | None = Field(default=None, max_length=512)
-    bio: str | None = None
-    socials: dict | None = None
+    avatar_url: HttpUrl | None = None
+    bio: str | None = Field(default=None, max_length=2000)
+    socials: dict[SocialKey, SocialHandle] | None = Field(default=None, max_length=32)
 
 
 class UserProfileRead(IdentifiedRead, UserProfilePayload):
@@ -18,7 +22,15 @@ class UserProfileRead(IdentifiedRead, UserProfilePayload):
 
 
 class UserBase(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=3,
+            max_length=64,
+            pattern=r'^[a-zA-Z0-9_]+$',
+        ),
+    ]
     email: EmailStr
     profile: UserProfilePayload
 

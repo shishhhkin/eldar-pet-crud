@@ -1,12 +1,26 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import BaseModel, StringConstraints
 
 from src.schemas.base import IdentifiedRead
+from src.schemas.shorts import BookShortRead, GenreShortRead
+
+__all__ = [
+    'GenreBase',
+    'GenreCreate',
+    'GenreUpdate',
+    'GenreShortRead',
+    'GenreRead',
+]
 
 
 class GenreBase(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+    ]
 
 
 class GenreCreate(GenreBase):
@@ -17,5 +31,5 @@ class GenreUpdate(GenreBase):
     pass
 
 
-class GenreRead(IdentifiedRead):
-    name: str
+class GenreRead(IdentifiedRead, GenreBase):
+    books: list[BookShortRead]

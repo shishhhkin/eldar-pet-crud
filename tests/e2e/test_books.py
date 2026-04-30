@@ -127,3 +127,20 @@ async def test_create_book_invalid_author_id(client: AsyncClient) -> None:
     response = await client.post('/books', json={'title': 'x', 'author_id': 'not-a-uuid'})
 
     assert response.status_code == 422
+
+
+async def test_create_book_strips_title(client: AsyncClient) -> None:
+    author = await _create_author(client)
+    response = await client.post(
+        '/books', json={'title': '  Война и мир  ', 'author_id': author['id']}
+    )
+
+    assert response.status_code == 201
+    assert response.json()['title'] == 'Война и мир'
+
+
+async def test_create_book_blank_title(client: AsyncClient) -> None:
+    author = await _create_author(client)
+    response = await client.post('/books', json={'title': '   ', 'author_id': author['id']})
+
+    assert response.status_code == 422

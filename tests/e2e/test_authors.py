@@ -84,3 +84,42 @@ async def test_create_author_empty_name(client: AsyncClient) -> None:
     response = await client.post('/authors', json={'name': '', 'bio': None})
 
     assert response.status_code == 422
+
+
+async def test_create_author_strips_whitespace(client: AsyncClient) -> None:
+    response = await client.post('/authors', json={'name': '  Лев Толстой  ', 'bio': None})
+
+    assert response.status_code == 201
+    assert response.json()['name'] == 'Лев Толстой'
+
+
+async def test_create_author_blank_after_strip(client: AsyncClient) -> None:
+    response = await client.post('/authors', json={'name': '   ', 'bio': None})
+
+    assert response.status_code == 422
+
+
+async def test_create_author_bio_too_long(client: AsyncClient) -> None:
+    response = await client.post('/authors', json={'name': 'X', 'bio': 'a' * 2001})
+
+    assert response.status_code == 422
+
+
+async def test_read_author_includes_books(client: AsyncClient) -> None:
+    author = (await client.post('/authors', json=_payload())).json()
+    book = (
+        await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
+    ).json()
+
+    response = await client.get(f'/authors/{author["id"]}')
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['books'] == [{'id': book['id'], 'title': book['title']}]
+
+
+async def test_create_author_returns_empty_books(client: AsyncClient) -> None:
+    response = await client.post('/authors', json=_payload())
+
+    assert response.status_code == 201
+    assert response.json()['books'] == []

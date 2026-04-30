@@ -1,30 +1,38 @@
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.exceptions import GenreNotFound
 from src.models.genres import GenreModel
 from src.schemas.genres import GenreCreate, GenreUpdate
 
 
+async def _get_with_books(session: AsyncSession, genre_id: UUID) -> GenreModel | None:
+    stmt = (
+        select(GenreModel).where(GenreModel.id == genre_id).options(selectinload(GenreModel.books))
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def create_genre(session: AsyncSession, payload: GenreCreate) -> GenreModel:
     genre = GenreModel(name=payload.name)
     session.add(genre)
     await session.flush()
+    await session.refresh(genre, attribute_names=['books'])
     return genre
 
 
 async def get_genre(session: AsyncSession, genre_id: UUID) -> GenreModel:
-    genre = await session.get(GenreModel, genre_id)
+    genre = await _get_with_books(session, genre_id)
     if genre is None:
         raise GenreNotFound(genre_id)
     return genre
 
 
-async def update_genre(
-    session: AsyncSession, genre_id: UUID, payload: GenreUpdate
-) -> GenreModel:
-    genre = await session.get(GenreModel, genre_id)
+async def update_genre(session: AsyncSession, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
+    genre = await _get_with_books(session, genre_id)
     if genre is None:
         raise GenreNotFound(genre_id)
     genre.name = payload.name

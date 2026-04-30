@@ -20,9 +20,7 @@ async def read_book(book_id: UUID, session: SessionDep) -> BookRead:
 
 
 @router.put('/{book_id}', response_model=BookRead)
-async def update_book(
-    book_id: UUID, payload: BookUpdate, session: TxSessionDep
-) -> BookRead:
+async def update_book(book_id: UUID, payload: BookUpdate, session: TxSessionDep) -> BookRead:
     return await book_service.update_book(session, book_id, payload)  # type: ignore[return-value]
 
 

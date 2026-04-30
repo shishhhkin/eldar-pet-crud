@@ -140,3 +140,39 @@ async def test_create_user_duplicate_username(client: AsyncClient) -> None:
     )
 
     assert response.status_code == 409
+
+
+async def test_create_user_username_with_dash_rejected(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(username='john-doe'))
+
+    assert response.status_code == 422
+
+
+async def test_create_user_username_too_short(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(username='ab'))
+
+    assert response.status_code == 422
+
+
+async def test_create_user_username_too_long(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(username='a' * 65))
+
+    assert response.status_code == 422
+
+
+async def test_create_user_invalid_avatar_url(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(avatar_url='not-a-url'))
+
+    assert response.status_code == 422
+
+
+async def test_create_user_bio_too_long(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(bio='a' * 2001))
+
+    assert response.status_code == 422
+
+
+async def test_create_user_socials_key_too_long(client: AsyncClient) -> None:
+    response = await client.post('/users', json=_payload(socials={'a' * 33: 'value'}))
+
+    assert response.status_code == 422
