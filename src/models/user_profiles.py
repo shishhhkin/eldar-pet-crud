@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class UserProfileModel(AnalyticsMixin, Base):
     __tablename__ = 'user_profiles'
 
-    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(
         sa.Uuid,
         sa.ForeignKey('users.id', ondelete='CASCADE', onupdate='CASCADE'),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class GenreModel(AnalyticsMixin, Base):
     __tablename__ = 'genres'
 
-    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     name: Mapped[str] = mapped_column(sa.String(128), unique=True, nullable=False)
 
     books: Mapped[list[BookModel]] = relationship(
