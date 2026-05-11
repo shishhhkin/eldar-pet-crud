@@ -10,7 +10,7 @@ from src.models.genres import GenreModel
 from src.schemas.books import BookCreate, BookUpdate
 
 
-async def _get_loaded(session: AsyncSession, book_id: UUID) -> BookModel | None:
+async def _get_with_relations(session: AsyncSession, book_id: UUID) -> BookModel | None:
     stmt = (
         select(BookModel)
         .where(BookModel.id == book_id)
@@ -42,14 +42,14 @@ async def create_book(session: AsyncSession, payload: BookCreate) -> BookModel:
 
 
 async def get_book(session: AsyncSession, book_id: UUID) -> BookModel:
-    book = await _get_loaded(session, book_id)
+    book = await _get_with_relations(session, book_id)
     if book is None:
         raise ObjectNotFoundError(BookModel, book_id)
     return book
 
 
 async def update_book(session: AsyncSession, book_id: UUID, payload: BookUpdate) -> BookModel:
-    book = await _get_loaded(session, book_id)
+    book = await _get_with_relations(session, book_id)
     if book is None:
         raise ObjectNotFoundError(BookModel, book_id)
     for field, value in payload.model_dump(exclude={'genre_ids'}).items():
