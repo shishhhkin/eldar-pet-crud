@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, status
 
 from src.db import SessionDep, TxSessionDep
 from src.schemas.users import UserCreate, UserRead, UserUpdate
@@ -25,6 +25,5 @@ async def update_user(user_id: UUID, payload: UserUpdate, session: TxSessionDep)
 
 
 @router.delete('/{user_id}', status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: UUID, session: TxSessionDep) -> Response:
+async def delete_user(user_id: UUID, session: TxSessionDep) -> None:
     await user_service.delete_user(session, user_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

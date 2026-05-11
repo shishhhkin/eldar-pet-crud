@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, status
 
 from src.db import SessionDep, TxSessionDep
 from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
@@ -28,6 +28,5 @@ async def update_author(
 
 
 @router.delete('/{author_id}', status_code=status.HTTP_204_NO_CONTENT)
-async def delete_author(author_id: UUID, session: TxSessionDep) -> Response:
+async def delete_author(author_id: UUID, session: TxSessionDep) -> None:
     await author_service.delete_author(session, author_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

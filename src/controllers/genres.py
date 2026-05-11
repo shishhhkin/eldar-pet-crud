@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, status
 
 from src.db import SessionDep, TxSessionDep
 from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
@@ -25,6 +25,5 @@ async def update_genre(genre_id: UUID, payload: GenreUpdate, session: TxSessionD
 
 
 @router.delete('/{genre_id}', status_code=status.HTTP_204_NO_CONTENT)
-async def delete_genre(genre_id: UUID, session: TxSessionDep) -> Response:
+async def delete_genre(genre_id: UUID, session: TxSessionDep) -> None:
     await genre_service.delete_genre(session, genre_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

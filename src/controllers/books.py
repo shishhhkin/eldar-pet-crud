@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, status
 
 from src.db import SessionDep, TxSessionDep
 from src.schemas.books import BookCreate, BookRead, BookUpdate
@@ -25,6 +25,5 @@ async def update_book(book_id: UUID, payload: BookUpdate, session: TxSessionDep)
 
 
 @router.delete('/{book_id}', status_code=status.HTTP_204_NO_CONTENT)
-async def delete_book(book_id: UUID, session: TxSessionDep) -> Response:
+async def delete_book(book_id: UUID, session: TxSessionDep) -> None:
     await book_service.delete_book(session, book_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
