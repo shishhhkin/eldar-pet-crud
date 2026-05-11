@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.exceptions import BookNotFound, GenresNotFound
+from src.exceptions import GenresNotFound, ObjectNotFoundError
 from src.models.books import BookModel
 from src.models.genres import GenreModel
 from src.schemas.books import BookCreate, BookUpdate
@@ -44,14 +44,14 @@ async def create_book(session: AsyncSession, payload: BookCreate) -> BookModel:
 async def get_book(session: AsyncSession, book_id: UUID) -> BookModel:
     book = await _get_loaded(session, book_id)
     if book is None:
-        raise BookNotFound(book_id)
+        raise ObjectNotFoundError(BookModel, book_id)
     return book
 
 
 async def update_book(session: AsyncSession, book_id: UUID, payload: BookUpdate) -> BookModel:
     book = await _get_loaded(session, book_id)
     if book is None:
-        raise BookNotFound(book_id)
+        raise ObjectNotFoundError(BookModel, book_id)
     for field, value in payload.model_dump(exclude={'genre_ids'}).items():
         setattr(book, field, value)
     book.genres = await _load_genres(session, payload.genre_ids)
@@ -63,6 +63,6 @@ async def update_book(session: AsyncSession, book_id: UUID, payload: BookUpdate)
 async def delete_book(session: AsyncSession, book_id: UUID) -> None:
     book = await session.get(BookModel, book_id)
     if book is None:
-        raise BookNotFound(book_id)
+        raise ObjectNotFoundError(BookModel, book_id)
     await session.delete(book)
     await session.flush()

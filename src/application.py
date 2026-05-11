@@ -55,7 +55,7 @@ def get_app() -> FastAPI:
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         rid = getattr(request.state, 'request_id', None)
         logger.warning('app_error code=%s status=%s msg=%s', exc.code, exc.status_code, exc.message)
-        return _error_response(exc.status_code, exc.code, exc.message, rid)
+        return _error_response(exc.status_code.value, exc.code, exc.message, rid)
 
     @app.exception_handler(IntegrityError)
     async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.exceptions import GenreNotFound
+from src.exceptions import ObjectNotFoundError
 from src.models.genres import GenreModel
 from src.schemas.genres import GenreCreate, GenreUpdate
 
@@ -27,14 +27,14 @@ async def create_genre(session: AsyncSession, payload: GenreCreate) -> GenreMode
 async def get_genre(session: AsyncSession, genre_id: UUID) -> GenreModel:
     genre = await _get_with_books(session, genre_id)
     if genre is None:
-        raise GenreNotFound(genre_id)
+        raise ObjectNotFoundError(GenreModel, genre_id)
     return genre
 
 
 async def update_genre(session: AsyncSession, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
     genre = await _get_with_books(session, genre_id)
     if genre is None:
-        raise GenreNotFound(genre_id)
+        raise ObjectNotFoundError(GenreModel, genre_id)
     for field, value in payload.model_dump().items():
         setattr(genre, field, value)
     await session.flush()
@@ -44,6 +44,6 @@ async def update_genre(session: AsyncSession, genre_id: UUID, payload: GenreUpda
 async def delete_genre(session: AsyncSession, genre_id: UUID) -> None:
     genre = await session.get(GenreModel, genre_id)
     if genre is None:
-        raise GenreNotFound(genre_id)
+        raise ObjectNotFoundError(GenreModel, genre_id)
     await session.delete(genre)
     await session.flush()

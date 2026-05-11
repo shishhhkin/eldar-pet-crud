@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.exceptions import AuthorNotFound
+from src.exceptions import ObjectNotFoundError
 from src.models.authors import AuthorModel
 from src.schemas.authors import AuthorCreate, AuthorUpdate
 
@@ -29,7 +29,7 @@ async def create_author(session: AsyncSession, payload: AuthorCreate) -> AuthorM
 async def get_author(session: AsyncSession, author_id: UUID) -> AuthorModel:
     author = await _get_with_books(session, author_id)
     if author is None:
-        raise AuthorNotFound(author_id)
+        raise ObjectNotFoundError(AuthorModel, author_id)
     return author
 
 
@@ -38,7 +38,7 @@ async def update_author(
 ) -> AuthorModel:
     author = await _get_with_books(session, author_id)
     if author is None:
-        raise AuthorNotFound(author_id)
+        raise ObjectNotFoundError(AuthorModel, author_id)
     for field, value in payload.model_dump().items():
         setattr(author, field, value)
     await session.flush()
@@ -48,6 +48,6 @@ async def update_author(
 async def delete_author(session: AsyncSession, author_id: UUID) -> None:
     author = await session.get(AuthorModel, author_id)
     if author is None:
-        raise AuthorNotFound(author_id)
+        raise ObjectNotFoundError(AuthorModel, author_id)
     await session.delete(author)
     await session.flush()
