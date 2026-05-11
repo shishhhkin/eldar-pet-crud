@@ -1,16 +1,20 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.db import SessionDep, TxSessionDep
-from src.exceptions import GenresNotFound, ObjectNotFoundError
+from src.exceptions import ConstraintViolationError, GenresNotFound, ObjectNotFoundError
 from src.models.books import BookModel
 from src.models.genres import GenreModel
 from src.schemas.books import BookCreate, BookUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class BookService:
@@ -41,7 +45,12 @@ class BookService:
         genres = await self._load_genres(payload.genre_ids)
         book = BookModel(**payload.model_dump(exclude={'genre_ids'}), genres=genres)
         self.session.add(book)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error creating book: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(f'failed to create book: {str(e.orig)}') from e
         await self.session.refresh(book, attribute_names=['author', 'genres'])
         return book
 
@@ -58,7 +67,14 @@ class BookService:
         for field, value in payload.model_dump(exclude={'genre_ids'}).items():
             setattr(book, field, value)
         book.genres = await self._load_genres(payload.genre_ids)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error updating book {book_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to update book {book_id}: {str(e.orig)}'
+            ) from e
         await self.session.refresh(book, attribute_names=['author', 'genres'])
         return book
 
@@ -67,7 +83,14 @@ class BookService:
         if book is None:
             raise ObjectNotFoundError(BookModel, book_id)
         await self.session.delete(book)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error deleting book {book_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to delete book {book_id}: {str(e.orig)}'
+            ) from e
 
 
 def _book_service(session: SessionDep) -> BookService:

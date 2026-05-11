@@ -1,15 +1,19 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.db import SessionDep, TxSessionDep
-from src.exceptions import ObjectNotFoundError
+from src.exceptions import ConstraintViolationError, ObjectNotFoundError
 from src.models.authors import AuthorModel
 from src.schemas.authors import AuthorCreate, AuthorUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class AuthorService:
@@ -27,7 +31,12 @@ class AuthorService:
     async def create(self, payload: AuthorCreate) -> AuthorModel:
         author = AuthorModel(**payload.model_dump())
         self.session.add(author)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error creating author: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(f'failed to create author: {str(e.orig)}') from e
         await self.session.refresh(author, attribute_names=['books'])
         return author
 
@@ -43,7 +52,14 @@ class AuthorService:
             raise ObjectNotFoundError(AuthorModel, author_id)
         for field, value in payload.model_dump().items():
             setattr(author, field, value)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error updating author {author_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to update author {author_id}: {str(e.orig)}'
+            ) from e
         return author
 
     async def delete(self, author_id: UUID) -> None:
@@ -51,7 +67,14 @@ class AuthorService:
         if author is None:
             raise ObjectNotFoundError(AuthorModel, author_id)
         await self.session.delete(author)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error deleting author {author_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to delete author {author_id}: {str(e.orig)}'
+            ) from e
 
 
 def _author_service(session: SessionDep) -> AuthorService:

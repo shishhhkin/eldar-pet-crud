@@ -1,3 +1,5 @@
+import logging
+import time
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -7,6 +9,8 @@ from starlette.responses import Response
 from src.logging_config import request_id_var
 
 REQUEST_ID_HEADER = 'X-Request-ID'
+
+logger = logging.getLogger(__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -19,4 +23,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             request_id_var.reset(token)
         response.headers[REQUEST_ID_HEADER] = rid
+        return response
+
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        start = time.time()
+        response = await call_next(request)
+        elapsed = time.time() - start
+        logger.info(
+            f'{request.method} {request.url.path} {response.status_code} {elapsed:.3f}s'
+        )
         return response

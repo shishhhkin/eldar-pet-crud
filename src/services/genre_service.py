@@ -1,15 +1,19 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.db import SessionDep, TxSessionDep
-from src.exceptions import ObjectNotFoundError
+from src.exceptions import ConstraintViolationError, ObjectNotFoundError
 from src.models.genres import GenreModel
 from src.schemas.genres import GenreCreate, GenreUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class GenreService:
@@ -27,7 +31,12 @@ class GenreService:
     async def create(self, payload: GenreCreate) -> GenreModel:
         genre = GenreModel(**payload.model_dump())
         self.session.add(genre)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error creating genre: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(f'failed to create genre: {str(e.orig)}') from e
         await self.session.refresh(genre, attribute_names=['books'])
         return genre
 
@@ -43,7 +52,14 @@ class GenreService:
             raise ObjectNotFoundError(GenreModel, genre_id)
         for field, value in payload.model_dump().items():
             setattr(genre, field, value)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error updating genre {genre_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to update genre {genre_id}: {str(e.orig)}'
+            ) from e
         return genre
 
     async def delete(self, genre_id: UUID) -> None:
@@ -51,7 +67,14 @@ class GenreService:
         if genre is None:
             raise ObjectNotFoundError(GenreModel, genre_id)
         await self.session.delete(genre)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as e:
+            msg = f'integrity error deleting genre {genre_id}: {e.orig}'
+            logger.error(msg, exc_info=True)
+            raise ConstraintViolationError(
+                f'failed to delete genre {genre_id}: {str(e.orig)}'
+            ) from e
 
 
 def _genre_service(session: SessionDep) -> GenreService:

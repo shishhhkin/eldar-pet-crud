@@ -1,5 +1,6 @@
 from src.exceptions.base import (
     AppError,
+    ConstraintViolationError,
     NotFoundError,
     ObjectNotFoundError,
     ValidationAppError,
@@ -11,5 +12,6 @@ __all__ = [
     'NotFoundError',
     'ValidationAppError',
     'ObjectNotFoundError',
+    'ConstraintViolationError',
     'GenresNotFound',
 ]

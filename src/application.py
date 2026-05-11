@@ -14,7 +14,7 @@ from src.controllers.users import router as users_router
 from src.exceptions import AppError
 from src.healthcheck.router import router as healthcheck_router
 from src.logging_config import setup_logging
-from src.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
+from src.middleware import REQUEST_ID_HEADER, LoggingMiddleware, RequestIDMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ def get_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(LoggingMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -54,13 +55,17 @@ def get_app() -> FastAPI:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         rid = getattr(request.state, 'request_id', None)
-        logger.warning('app_error code=%s status=%s msg=%s', exc.code, exc.status_code, exc.message)
+        logger.info(
+            'app_error: code=%s status=%s detail=%s',
+            exc.code,
+            exc.status_code.value,
+            exc.message,
+        )
         return _error_response(exc.status_code.value, exc.code, exc.message, rid)
 
     @app.exception_handler(IntegrityError)
-    async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    async def integrity_error_handler(request: Request, _exc: IntegrityError) -> JSONResponse:
         rid = getattr(request.state, 'request_id', None)
-        logger.warning('integrity_error: %s', exc)
         return _error_response(
             status.HTTP_409_CONFLICT,
             'conflict',
@@ -71,7 +76,7 @@ def get_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
         rid = getattr(request.state, 'request_id', None)
-        logger.exception('unhandled_error: %s', exc)
+        logger.exception('unhandled exception: %s', type(exc).__name__)
         return _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             'internal_error',

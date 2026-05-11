@@ -24,3 +24,8 @@ class ValidationAppError(AppError):
 class ObjectNotFoundError(NotFoundError):
     def __init__(self, model: type, object_id: UUID) -> None:
         super().__init__(f'{model.__name__} {object_id} not found')
+
+
+class ConstraintViolationError(AppError):
+    status_code = HTTPStatus.CONFLICT
+    code = 'constraint_violation'
