@@ -20,13 +20,16 @@ class AuthorService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def _get_with_books(self, author_id: UUID) -> AuthorModel | None:
+    async def _get_with_books(self, author_id: UUID) -> AuthorModel:
         stmt = (
             select(AuthorModel)
             .where(AuthorModel.id == author_id)
             .options(selectinload(AuthorModel.books))
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        author = (await self.session.execute(stmt)).scalar_one_or_none()
+        if author is None:
+            raise ObjectNotFoundError(AuthorModel, author_id)
+        return author
 
     async def create(self, payload: AuthorCreate) -> AuthorModel:
         author = AuthorModel(**payload.model_dump())
@@ -41,15 +44,10 @@ class AuthorService:
         return author
 
     async def get(self, author_id: UUID) -> AuthorModel:
-        author = await self._get_with_books(author_id)
-        if author is None:
-            raise ObjectNotFoundError(AuthorModel, author_id)
-        return author
+        return await self._get_with_books(author_id)
 
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorModel:
         author = await self._get_with_books(author_id)
-        if author is None:
-            raise ObjectNotFoundError(AuthorModel, author_id)
         for field, value in payload.model_dump().items():
             setattr(author, field, value)
         try:
@@ -63,9 +61,7 @@ class AuthorService:
         return author
 
     async def delete(self, author_id: UUID) -> None:
-        author = await self.session.get(AuthorModel, author_id)
-        if author is None:
-            raise ObjectNotFoundError(AuthorModel, author_id)
+        author = await self._get_with_books(author_id)
         await self.session.delete(author)
         try:
             await self.session.flush()

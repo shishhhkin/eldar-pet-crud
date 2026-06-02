@@ -21,13 +21,16 @@ class BookService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def _get_with_relations(self, book_id: UUID) -> BookModel | None:
+    async def _get_with_relations(self, book_id: UUID) -> BookModel:
         stmt = (
             select(BookModel)
             .where(BookModel.id == book_id)
             .options(selectinload(BookModel.author), selectinload(BookModel.genres))
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        book = (await self.session.execute(stmt)).scalar_one_or_none()
+        if book is None:
+            raise ObjectNotFoundError(BookModel, book_id)
+        return book
 
     async def _load_genres(self, genre_ids: list[UUID]) -> list[GenreModel]:
         if not genre_ids:
@@ -55,15 +58,10 @@ class BookService:
         return book
 
     async def get(self, book_id: UUID) -> BookModel:
-        book = await self._get_with_relations(book_id)
-        if book is None:
-            raise ObjectNotFoundError(BookModel, book_id)
-        return book
+        return await self._get_with_relations(book_id)
 
     async def update(self, book_id: UUID, payload: BookUpdate) -> BookModel:
         book = await self._get_with_relations(book_id)
-        if book is None:
-            raise ObjectNotFoundError(BookModel, book_id)
         for field, value in payload.model_dump(exclude={'genre_ids'}).items():
             setattr(book, field, value)
         book.genres = await self._load_genres(payload.genre_ids)
@@ -79,9 +77,7 @@ class BookService:
         return book
 
     async def delete(self, book_id: UUID) -> None:
-        book = await self.session.get(BookModel, book_id)
-        if book is None:
-            raise ObjectNotFoundError(BookModel, book_id)
+        book = await self._get_with_relations(book_id)
         await self.session.delete(book)
         try:
             await self.session.flush()

@@ -20,13 +20,16 @@ class GenreService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def _get_with_books(self, genre_id: UUID) -> GenreModel | None:
+    async def _get_with_books(self, genre_id: UUID) -> GenreModel:
         stmt = (
             select(GenreModel)
             .where(GenreModel.id == genre_id)
             .options(selectinload(GenreModel.books))
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        genre = (await self.session.execute(stmt)).scalar_one_or_none()
+        if genre is None:
+            raise ObjectNotFoundError(GenreModel, genre_id)
+        return genre
 
     async def create(self, payload: GenreCreate) -> GenreModel:
         genre = GenreModel(**payload.model_dump())
@@ -41,15 +44,10 @@ class GenreService:
         return genre
 
     async def get(self, genre_id: UUID) -> GenreModel:
-        genre = await self._get_with_books(genre_id)
-        if genre is None:
-            raise ObjectNotFoundError(GenreModel, genre_id)
-        return genre
+        return await self._get_with_books(genre_id)
 
     async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
         genre = await self._get_with_books(genre_id)
-        if genre is None:
-            raise ObjectNotFoundError(GenreModel, genre_id)
         for field, value in payload.model_dump().items():
             setattr(genre, field, value)
         try:
@@ -63,9 +61,7 @@ class GenreService:
         return genre
 
     async def delete(self, genre_id: UUID) -> None:
-        genre = await self.session.get(GenreModel, genre_id)
-        if genre is None:
-            raise ObjectNotFoundError(GenreModel, genre_id)
+        genre = await self._get_with_books(genre_id)
         await self.session.delete(genre)
         try:
             await self.session.flush()

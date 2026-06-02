@@ -21,13 +21,16 @@ class UserService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def _get_with_profile(self, user_id: UUID) -> UserModel | None:
+    async def _get_with_profile(self, user_id: UUID) -> UserModel:
         stmt = (
             select(UserModel)
             .where(UserModel.id == user_id)
             .options(selectinload(UserModel.profile))
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        user = (await self.session.execute(stmt)).scalar_one_or_none()
+        if user is None:
+            raise ObjectNotFoundError(UserModel, user_id)
+        return user
 
     async def create(self, payload: UserCreate) -> UserModel:
         user = UserModel(
@@ -45,15 +48,10 @@ class UserService:
         return user
 
     async def get(self, user_id: UUID) -> UserModel:
-        user = await self._get_with_profile(user_id)
-        if user is None:
-            raise ObjectNotFoundError(UserModel, user_id)
-        return user
+        return await self._get_with_profile(user_id)
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserModel:
         user = await self._get_with_profile(user_id)
-        if user is None:
-            raise ObjectNotFoundError(UserModel, user_id)
 
         for field, value in payload.model_dump(mode='json', exclude={'profile'}).items():
             setattr(user, field, value)
@@ -76,9 +74,7 @@ class UserService:
         return user
 
     async def delete(self, user_id: UUID) -> None:
-        user = await self.session.get(UserModel, user_id)
-        if user is None:
-            raise ObjectNotFoundError(UserModel, user_id)
+        user = await self._get_with_profile(user_id)
         await self.session.delete(user)
         try:
             await self.session.flush()
