@@ -13,7 +13,13 @@ SocialKey = Annotated[str, StringConstraints(min_length=1, max_length=32)]
 
 class UserProfilePayload(BaseModel):
     avatar_url: HttpUrl | None = None
-    bio: str | None = Field(default=None, max_length=2000)
+    bio: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+        ]
+        | None
+    ) = None
     socials: dict[SocialKey, SocialHandle] | None = Field(default=None, max_length=32)
 
 
