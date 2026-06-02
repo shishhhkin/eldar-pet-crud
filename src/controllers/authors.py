@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, status
 
 from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
-from src.services.author_service import AuthorServiceDep, AuthorServiceTxDep
+from src.services.deps import AuthorServiceDep, AuthorServiceTxDep
 
 router = APIRouter(prefix='/authors', tags=['authors'])
 

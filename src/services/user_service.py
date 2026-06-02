@@ -1,14 +1,11 @@
 import logging
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db import SessionDep, TxSessionDep
 from src.exceptions import ConstraintViolationError, ObjectNotFoundError
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
@@ -84,15 +81,3 @@ class UserService:
             raise ConstraintViolationError(
                 f'failed to delete user {user_id}: {str(e.orig)}'
             ) from e
-
-
-def _user_service(session: SessionDep) -> UserService:
-    return UserService(session)
-
-
-def _user_service_tx(session: TxSessionDep) -> UserService:
-    return UserService(session)
-
-
-UserServiceDep = Annotated[UserService, Depends(_user_service)]
-UserServiceTxDep = Annotated[UserService, Depends(_user_service_tx)]

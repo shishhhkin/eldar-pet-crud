@@ -1,14 +1,11 @@
 import logging
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db import SessionDep, TxSessionDep
 from src.exceptions import ConstraintViolationError, ObjectNotFoundError
 from src.models.genres import GenreModel
 from src.schemas.genres import GenreCreate, GenreUpdate
@@ -71,15 +68,3 @@ class GenreService:
             raise ConstraintViolationError(
                 f'failed to delete genre {genre_id}: {str(e.orig)}'
             ) from e
-
-
-def _genre_service(session: SessionDep) -> GenreService:
-    return GenreService(session)
-
-
-def _genre_service_tx(session: TxSessionDep) -> GenreService:
-    return GenreService(session)
-
-
-GenreServiceDep = Annotated[GenreService, Depends(_genre_service)]
-GenreServiceTxDep = Annotated[GenreService, Depends(_genre_service_tx)]

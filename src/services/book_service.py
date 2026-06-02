@@ -1,14 +1,11 @@
 import logging
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db import SessionDep, TxSessionDep
 from src.exceptions import ConstraintViolationError, GenresNotFound, ObjectNotFoundError
 from src.models.books import BookModel
 from src.models.genres import GenreModel
@@ -87,15 +84,3 @@ class BookService:
             raise ConstraintViolationError(
                 f'failed to delete book {book_id}: {str(e.orig)}'
             ) from e
-
-
-def _book_service(session: SessionDep) -> BookService:
-    return BookService(session)
-
-
-def _book_service_tx(session: TxSessionDep) -> BookService:
-    return BookService(session)
-
-
-BookServiceDep = Annotated[BookService, Depends(_book_service)]
-BookServiceTxDep = Annotated[BookService, Depends(_book_service_tx)]
