@@ -8,13 +8,14 @@
 - **Author → Book** — 1:N
 - **Book ↔ Genre** — M:N (через `book_genres`)
 
-## Стек
+Идентификаторы — UUIDv7. Роуты API смонтированы под префиксом `/v1`.
 
-- Python 3.14, FastAPI, Pydantic v2, SQLAlchemy (async) + asyncpg, Alembic
-- pytest + pytest-asyncio, httpx (ASGI-транспорт)
-- ruff
-- Docker + docker-compose
-- uv (менеджер зависимостей)
+## Архитектура
+
+- **Контроллеры** (`src/controllers/`) — тонкие FastAPI-роутеры, получают сервис через `Depends`.
+- **Сервисы** (`src/services/`) — классы с бизнес-логикой; `AsyncSession` инжектится в конструктор. Каждый сервис экспортирует две DI-зависимости: `*ServiceDep` (сессия без транзакции, для чтения) и `*ServiceTxDep` (сессия в транзакции через `session.begin()`, для мутаций).
+- **Обработка ошибок** — доменные `AppError` (`src/exceptions/`), `IntegrityError` и непойманные исключения преобразуются в единый JSON-ответ (`code`, `detail`, `request_id`).
+- **Middleware** (`src/middleware.py`) — `RequestIDMiddleware` проставляет `X-Request-ID` и кладёт его в `contextvar`, `LoggingMiddleware` логирует метод, путь, статус и длительность каждого запроса.
 
 ## Запуск
 
@@ -45,7 +46,7 @@ uv run python -m src.main
 uv run pytest
 ```
 
-База `{postgres_db}_test` создаётся автоматически при первом запуске. Схема пересоздаётся перед каждым тестом. 48 тестов e2e через `httpx.AsyncClient` + `ASGITransport`.
+PostgreSQL поднимается в одноразовом контейнере через `testcontainers` (`postgres:17-alpine`) — отдельная БД и `.env` не нужны, нужен только запущенный Docker. Схема пересоздаётся перед каждым тестом. 69 тестов e2e через `httpx.AsyncClient` + `ASGITransport`.
 
 ## Апгрейд стартового шаблона
 
@@ -55,18 +56,3 @@ uv run pytest
 - **`src/config.py`:** переход на `pydantic-settings` v2 — `model_config = SettingsConfigDict(...)` вместо вложенного `class Config`, удалён `Field(env=...)` (убран в v2), `pathlib.Path` вместо `os.path.*`.
 - **`src/db.py`:** `get_session` переписан как обычный async-генератор под `Depends` (раньше — `@asynccontextmanager` с некорректной аннотацией); убран неявный `commit` на выходе из контекста — транзакциями управляет вызывающий код; добавлен `SessionDep = Annotated[AsyncSession, Depends(get_session)]`.
 - **`src/main.py`:** убрана обёртка `asyncio.run(uvicorn.run(...))` (вложенные event loop'ы → `RuntimeError`), `uvicorn.run` вызывается напрямую; путь к фабрике — `src.application:get_app` (устойчив к CWD/reload).
-
-## Структура
-
-```
-src/
-  application.py   # FastAPI factory
-  config.py        # Settings
-  db.py            # engine, SessionFactory, get_session
-  models/          # SQLAlchemy модели
-  schemas/         # Pydantic-схемы
-  services/        # бизнес-логика
-  controllers/     # FastAPI-роутеры
-alembic/           # миграции
-tests/e2e/         # интеграционные тесты
-```
