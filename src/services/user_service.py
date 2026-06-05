@@ -1,17 +1,13 @@
-import logging
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.exceptions import ConstraintViolationError, ObjectNotFoundError
+from src.exceptions import ObjectNotFoundError
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
 from src.schemas.users import UserCreate, UserUpdate
-
-logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -35,12 +31,7 @@ class UserService:
             profile=UserProfileModel(**payload.profile.model_dump(mode='json')),
         )
         self.session.add(user)
-        try:
-            await self.session.flush()
-        except IntegrityError as e:
-            msg = f'integrity error creating user: {e.orig}'
-            logger.error(msg, exc_info=True)
-            raise ConstraintViolationError(f'failed to create user: {str(e.orig)}') from e
+        await self.session.flush()
         await self.session.refresh(user, attribute_names=['profile'])
         return user
 
@@ -60,24 +51,10 @@ class UserService:
             for key, value in profile_data.items():
                 setattr(user.profile, key, value)
 
-        try:
-            await self.session.flush()
-        except IntegrityError as e:
-            msg = f'integrity error updating user {user_id}: {e.orig}'
-            logger.error(msg, exc_info=True)
-            raise ConstraintViolationError(
-                f'failed to update user {user_id}: {str(e.orig)}'
-            ) from e
+        await self.session.flush()
         return user
 
     async def delete(self, user_id: UUID) -> None:
         user = await self._get_with_profile(user_id)
         await self.session.delete(user)
-        try:
-            await self.session.flush()
-        except IntegrityError as e:
-            msg = f'integrity error deleting user {user_id}: {e.orig}'
-            logger.error(msg, exc_info=True)
-            raise ConstraintViolationError(
-                f'failed to delete user {user_id}: {str(e.orig)}'
-            ) from e
+        await self.session.flush()
