@@ -56,5 +56,7 @@ class UserService:
 
     async def delete(self, user_id: UUID) -> None:
         user = await self._get_with_profile(user_id)
-        await self.session.delete(user)
+        user.is_deleted = True
+        if user.profile is not None:
+            user.profile.is_deleted = True
         await self.session.flush()

@@ -73,8 +73,6 @@ def get_app() -> FastAPI:
         table = getattr(diag, 'table_name', None) if diag else None
         detail = getattr(diag, 'message_detail', None) if diag else None
 
-        # Клиентские нарушения (unique/FK/check) — это ожидаемые 409, логируем как
-        # warning. Прочие (NOT NULL и пр.) обычно сигнал бага у нас — логируем как error.
         client_caused = sqlstate in {'23505', '23503', '23514'}
         logger.log(
             logging.WARNING if client_caused else logging.ERROR,

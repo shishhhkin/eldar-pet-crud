@@ -108,7 +108,7 @@ async def test_create_book_with_unknown_genre(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_delete_book_cleans_association(
+async def test_delete_book_retains_association(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     author = await _create_author(client)
@@ -120,42 +120,49 @@ async def test_delete_book_cleans_association(
         )
     ).json()
 
-    count_before = await db_session.scalar(select(func.count()).select_from(book_genres))
-    assert count_before == 1
-
     await client.delete(f'/books/{created["id"]}')
 
-    count_after = await db_session.scalar(select(func.count()).select_from(book_genres))
-    assert count_after == 0
+    assert (await client.get(f'/books/{created["id"]}')).status_code == 404
+    assert (await client.get(f'/genres/{g1["id"]}')).json()['books'] == []
+    count = await db_session.scalar(select(func.count()).select_from(book_genres))
+    assert count == 1
 
 
-async def test_delete_genre_cleans_association(
+async def test_delete_genre_retains_association(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     author = await _create_author(client)
     g1 = await _create_genre(client, 'роман')
-    await client.post(
-        '/books',
-        json={'title': 't', 'author_id': author['id'], 'genre_ids': [g1['id']]},
-    )
+    book = (
+        await client.post(
+            '/books',
+            json={'title': 't', 'author_id': author['id'], 'genre_ids': [g1['id']]},
+        )
+    ).json()
 
     await client.delete(f'/genres/{g1["id"]}')
 
+    assert (await client.get(f'/genres/{g1["id"]}')).status_code == 404
+    assert (await client.get(f'/books/{book["id"]}')).json()['genres'] == []
     count = await db_session.scalar(select(func.count()).select_from(book_genres))
-    assert count == 0
+    assert count == 1
 
 
-async def test_delete_author_cascades_books_and_associations(
+async def test_delete_author_soft_cascades_books(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
     author = await _create_author(client)
     g1 = await _create_genre(client, 'роман')
-    await client.post(
-        '/books',
-        json={'title': 't', 'author_id': author['id'], 'genre_ids': [g1['id']]},
-    )
+    book = (
+        await client.post(
+            '/books',
+            json={'title': 't', 'author_id': author['id'], 'genre_ids': [g1['id']]},
+        )
+    ).json()
 
     await client.delete(f'/authors/{author["id"]}')
 
+    assert (await client.get(f'/authors/{author["id"]}')).status_code == 404
+    assert (await client.get(f'/books/{book["id"]}')).status_code == 404
     count = await db_session.scalar(select(func.count()).select_from(book_genres))
-    assert count == 0
+    assert count == 1

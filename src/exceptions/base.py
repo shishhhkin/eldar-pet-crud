@@ -21,6 +21,11 @@ class ValidationAppError(AppError):
     code = 'validation_error'
 
 
+class ConflictError(AppError):
+    status_code = HTTPStatus.CONFLICT
+    code = 'conflict'
+
+
 class ObjectNotFoundError(NotFoundError):
     def __init__(self, model: type, object_id: UUID) -> None:
         super().__init__(f'{model.__name__} {object_id} not found')

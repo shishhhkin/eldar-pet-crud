@@ -43,5 +43,7 @@ class AuthorService:
 
     async def delete(self, author_id: UUID) -> None:
         author = await self._get_with_books(author_id)
-        await self.session.delete(author)
+        author.is_deleted = True
+        for book in author.books:
+            book.is_deleted = True
         await self.session.flush()

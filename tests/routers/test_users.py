@@ -118,6 +118,23 @@ async def test_delete_cascades_profile(client: AsyncClient, db_session: AsyncSes
     count_after = await db_session.scalar(select(func.count()).select_from(UserProfileModel))
     assert count_after == 0
 
+    rows = (
+        await db_session.execute(
+            select(UserProfileModel).execution_options(include_deleted=True)
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].is_deleted is True
+
+
+async def test_recreate_user_with_deleted_credentials(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+    await client.delete(f'/users/{created["id"]}')
+
+    response = await client.post('/users', json=_payload())
+    assert response.status_code == 201
+    assert response.json()['id'] != created['id']
+
 
 async def test_create_user_invalid_email(client: AsyncClient) -> None:
     response = await client.post('/users', json=_payload(email='not-an-email'))

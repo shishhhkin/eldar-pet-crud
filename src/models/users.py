@@ -14,10 +14,24 @@ if TYPE_CHECKING:
 
 class UserModel(AnalyticsMixin, Base):
     __tablename__ = 'users'
+    __table_args__ = (
+        sa.Index(
+            'uq_users_username_active',
+            'username',
+            unique=True,
+            postgresql_where=sa.text('is_deleted = false'),
+        ),
+        sa.Index(
+            'uq_users_email_active',
+            'email',
+            unique=True,
+            postgresql_where=sa.text('is_deleted = false'),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
-    username: Mapped[str] = mapped_column(sa.String(64), unique=True, nullable=False)
-    email: Mapped[str] = mapped_column(sa.String(255), unique=True, nullable=False)
+    username: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    email: Mapped[str] = mapped_column(sa.String(255), nullable=False)
 
     profile: Mapped[UserProfileModel] = relationship(
         back_populates='user',

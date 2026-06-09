@@ -73,6 +73,16 @@ async def test_create_genre_duplicate_name(client: AsyncClient) -> None:
     assert response.status_code == 409
 
 
+async def test_recreate_genre_with_deleted_name(client: AsyncClient) -> None:
+    created = (await client.post('/genres', json={'name': 'uniq'})).json()
+    await client.delete(f'/genres/{created["id"]}')
+
+    response = await client.post('/genres', json={'name': 'uniq'})
+
+    assert response.status_code == 201
+    assert response.json()['id'] != created['id']
+
+
 async def test_create_genre_empty_name(client: AsyncClient) -> None:
     response = await client.post('/genres', json={'name': ''})
 

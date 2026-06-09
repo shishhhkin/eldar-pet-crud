@@ -4,7 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.exceptions import GenresNotFound, ObjectNotFoundError
+from src.exceptions import ConflictError, GenresNotFound, ObjectNotFoundError
+from src.models.authors import AuthorModel
 from src.models.books import BookModel
 from src.models.genres import GenreModel
 from src.schemas.books import BookCreate, BookUpdate
@@ -25,6 +26,14 @@ class BookService:
             raise ObjectNotFoundError(BookModel, book_id)
         return book
 
+    async def _ensure_author_active(self, author_id: UUID) -> None:
+        stmt = select(AuthorModel.id).where(
+            AuthorModel.id == author_id,
+            AuthorModel.is_deleted.is_(False),
+        )
+        if (await self.session.execute(stmt)).scalar_one_or_none() is None:
+            raise ConflictError(f'author {author_id} is not available')
+
     async def _load_genres(self, genre_ids: list[UUID]) -> list[GenreModel]:
         if not genre_ids:
             return []
@@ -38,6 +47,7 @@ class BookService:
         return genres
 
     async def create(self, payload: BookCreate) -> BookModel:
+        await self._ensure_author_active(payload.author_id)
         genres = await self._load_genres(payload.genre_ids)
         book = BookModel(**payload.model_dump(exclude={'genre_ids'}), genres=genres)
         self.session.add(book)
@@ -50,6 +60,7 @@ class BookService:
 
     async def update(self, book_id: UUID, payload: BookUpdate) -> BookModel:
         book = await self._get_with_relations(book_id)
+        await self._ensure_author_active(payload.author_id)
         for field, value in payload.model_dump(exclude={'genre_ids'}).items():
             setattr(book, field, value)
         book.genres = await self._load_genres(payload.genre_ids)
@@ -59,5 +70,5 @@ class BookService:
 
     async def delete(self, book_id: UUID) -> None:
         book = await self._get_with_relations(book_id)
-        await self.session.delete(book)
+        book.is_deleted = True
         await self.session.flush()

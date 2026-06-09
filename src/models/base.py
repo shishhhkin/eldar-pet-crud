@@ -32,10 +32,8 @@ class AnalyticsMixin:
         onupdate=sa.func.now(),
         nullable=False,
     )
-    is_deleted: Mapped[bool] = (  # TODO:Сейчас это прикол, надо добавить soft delete(?)
-        mapped_column(
-            sa.Boolean,
-            server_default=sa.false(),
-            nullable=False,
-        )
+    is_deleted: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        server_default=sa.false(),
+        nullable=False,
     )

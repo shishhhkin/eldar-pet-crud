@@ -43,5 +43,5 @@ class GenreService:
 
     async def delete(self, genre_id: UUID) -> None:
         genre = await self._get_with_books(genre_id)
-        await self.session.delete(genre)
+        genre.is_deleted = True
         await self.session.flush()

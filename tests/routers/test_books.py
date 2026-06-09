@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -90,6 +90,48 @@ async def test_delete_book(client: AsyncClient) -> None:
     assert follow_up.status_code == 404
 
 
+async def test_delete_book_soft_retains_row(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    author = await _create_author(client)
+    created = (
+        await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
+    ).json()
+
+    await client.delete(f'/books/{created["id"]}')
+
+    book = (
+        await db_session.execute(
+            select(BookModel)
+            .where(BookModel.id == UUID(created['id']))
+            .execution_options(include_deleted=True)
+        )
+    ).scalar_one()
+    assert book.is_deleted is True
+
+
+async def test_create_book_under_deleted_author_conflict(client: AsyncClient) -> None:
+    author = await _create_author(client)
+    await client.delete(f'/authors/{author["id"]}')
+
+    response = await client.post('/books', json={'title': 't', 'author_id': author['id']})
+    assert response.status_code == 409
+
+
+async def test_update_book_to_deleted_author_conflict(client: AsyncClient) -> None:
+    alive = await _create_author(client, name='Жив')
+    doomed = await _create_author(client, name='Удалён')
+    book = (
+        await client.post('/books', json={'title': 't', 'author_id': alive['id']})
+    ).json()
+    await client.delete(f'/authors/{doomed["id"]}')
+
+    response = await client.put(
+        f'/books/{book["id"]}', json={'title': 't', 'author_id': doomed['id']}
+    )
+    assert response.status_code == 409
+
+
 async def test_delete_book_not_found(client: AsyncClient) -> None:
     response = await client.delete(f'/books/{uuid4()}')
 
@@ -108,6 +150,14 @@ async def test_delete_author_cascades_books(client: AsyncClient, db_session: Asy
 
     count_after = await db_session.scalar(select(func.count()).select_from(BookModel))
     assert count_after == 0
+
+    rows = (
+        await db_session.execute(
+            select(BookModel).execution_options(include_deleted=True)
+        )
+    ).scalars().all()
+    assert len(rows) == 2
+    assert all(book.is_deleted for book in rows)
 
 
 async def test_create_book_with_unknown_author(client: AsyncClient) -> None:
