@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
+from src.dependencies import UserServiceDep, UserServiceTxDep
 from src.schemas.users import UserCreate, UserRead, UserUpdate
-from src.services.deps import UserServiceDep, UserServiceTxDep
 
 router = APIRouter(prefix='/users', tags=['users'])
 

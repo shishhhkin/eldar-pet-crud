@@ -1,12 +1,16 @@
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db import SessionDep, TxSessionDep
+from src.db import get_session, get_tx_session
 from src.services.author_service import AuthorService
 from src.services.book_service import BookService
 from src.services.genre_service import GenreService
 from src.services.user_service import UserService
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+TxSessionDep = Annotated[AsyncSession, Depends(get_tx_session)]
 
 
 def _author_service(session: SessionDep) -> AuthorService:

@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
+from src.dependencies import AuthorServiceDep, AuthorServiceTxDep
 from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
-from src.services.deps import AuthorServiceDep, AuthorServiceTxDep
 
 router = APIRouter(prefix='/authors', tags=['authors'])
 

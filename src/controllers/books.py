@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
+from src.dependencies import BookServiceDep, BookServiceTxDep
 from src.schemas.books import BookCreate, BookRead, BookUpdate
-from src.services.deps import BookServiceDep, BookServiceTxDep
 
 router = APIRouter(prefix='/books', tags=['books'])
 

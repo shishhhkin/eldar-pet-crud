@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
+from src.dependencies import GenreServiceDep, GenreServiceTxDep
 from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
-from src.services.deps import GenreServiceDep, GenreServiceTxDep
 
 router = APIRouter(prefix='/genres', tags=['genres'])
 
