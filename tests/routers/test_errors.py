@@ -27,23 +27,3 @@ async def test_not_found_error_shape(client: AsyncClient) -> None:
     assert body['code'] == 'not_found'
     assert str(missing_id) in body['detail']
     assert body['request_id']
-
-
-async def test_validation_error_shape_for_unknown_genre(client: AsyncClient) -> None:
-    author = (await client.post('/authors', json={'name': 'A', 'bio': None})).json()
-    missing_genre_id = uuid4()
-
-    response = await client.post(
-        '/books',
-        json={
-            'title': 'T',
-            'author_id': author['id'],
-            'genre_ids': [str(missing_genre_id)],
-        },
-    )
-
-    assert response.status_code == 422
-    body = response.json()
-    assert body['code'] == 'validation_error'
-    assert str(missing_genre_id) in body['detail']
-    assert body['request_id']

@@ -1,10 +1,19 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.models.books import BookModel
 
 
-def _payload(name: str = 'Лев Толстой', bio: str | None = 'русский писатель') -> dict:
-    return {'name': name, 'bio': bio}
+def _payload(
+    name: str = 'Лев Толстой',
+    bio: str | None = 'русский писатель',
+    *,
+    books: list[dict] | None = None,
+) -> dict:
+    return {'name': name, 'bio': bio, 'books': books if books is not None else []}
 
 
 async def test_create_author(client: AsyncClient) -> None:
@@ -14,6 +23,7 @@ async def test_create_author(client: AsyncClient) -> None:
     body = response.json()
     assert body['name'] == 'Лев Толстой'
     assert body['bio'] == 'русский писатель'
+    assert body['books'] == []
     assert 'id' in body
 
 
@@ -24,8 +34,25 @@ async def test_create_author_without_bio(client: AsyncClient) -> None:
     assert response.json()['bio'] is None
 
 
+async def test_create_author_with_nested_books(client: AsyncClient) -> None:
+    response = await client.post(
+        '/authors',
+        json=_payload(books=[{'title': 'Война и мир'}, {'title': 'Анна Каренина'}]),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    titles = [book['title'] for book in body['books']]
+    assert titles == ['Война и мир', 'Анна Каренина']
+    for book in body['books']:
+        assert 'id' in book
+        assert 'author_id' not in book
+
+
 async def test_read_author(client: AsyncClient) -> None:
-    created = (await client.post('/authors', json=_payload())).json()
+    created = (
+        await client.post('/authors', json=_payload(books=[{'title': 'Война и мир'}]))
+    ).json()
 
     response = await client.get(f'/authors/{created["id"]}')
 
@@ -43,7 +70,7 @@ async def test_read_author_not_found(client: AsyncClient) -> None:
     assert body['request_id']
 
 
-async def test_update_author(client: AsyncClient) -> None:
+async def test_update_author_scalar_fields(client: AsyncClient) -> None:
     created = (await client.post('/authors', json=_payload())).json()
 
     response = await client.put(
@@ -56,6 +83,46 @@ async def test_update_author(client: AsyncClient) -> None:
     assert body['id'] == created['id']
     assert body['name'] == 'Л. Н. Толстой'
     assert body['bio'] is None
+
+
+async def test_update_author_replaces_books(client: AsyncClient) -> None:
+    created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
+
+    response = await client.put(
+        f'/authors/{created["id"]}',
+        json=_payload(books=[{'title': 'Новое'}]),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [book['title'] for book in body['books']] == ['Новое']
+    assert body['books'][0]['id'] != created['books'][0]['id']
+
+
+async def test_update_author_clears_books(client: AsyncClient) -> None:
+    created = (
+        await client.post('/authors', json=_payload(books=[{'title': 'Война и мир'}]))
+    ).json()
+
+    response = await client.put(f'/authors/{created["id"]}', json=_payload(books=[]))
+
+    assert response.status_code == 200
+    assert response.json()['books'] == []
+
+
+async def test_update_author_hard_deletes_replaced_books(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
+
+    await client.put(f'/authors/{created["id"]}', json=_payload(books=[{'title': 'Новое'}]))
+
+    rows = (
+        (await db_session.execute(select(BookModel).execution_options(include_deleted=True)))
+        .scalars()
+        .all()
+    )
+    assert [book.title for book in rows] == ['Новое']
 
 
 async def test_update_author_not_found(client: AsyncClient) -> None:
@@ -78,6 +145,33 @@ async def test_delete_author_not_found(client: AsyncClient) -> None:
     response = await client.delete(f'/authors/{uuid4()}')
 
     assert response.status_code == 404
+
+
+async def test_delete_author_soft_cascades_books(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = (
+        await client.post(
+            '/authors',
+            json=_payload(books=[{'title': 'Первая'}, {'title': 'Вторая'}]),
+        )
+    ).json()
+
+    count_before = await db_session.scalar(select(func.count()).select_from(BookModel))
+    assert count_before == 2
+
+    await client.delete(f'/authors/{created["id"]}')
+
+    count_after = await db_session.scalar(select(func.count()).select_from(BookModel))
+    assert count_after == 0
+
+    rows = (
+        (await db_session.execute(select(BookModel).execution_options(include_deleted=True)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert all(book.is_deleted for book in rows)
 
 
 async def test_create_author_empty_name(client: AsyncClient) -> None:
@@ -105,21 +199,34 @@ async def test_create_author_bio_too_long(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_read_author_includes_books(client: AsyncClient) -> None:
-    author = (await client.post('/authors', json=_payload())).json()
-    book = (
-        await client.post('/books', json={'title': 'Война и мир', 'author_id': author['id']})
-    ).json()
-
-    response = await client.get(f'/authors/{author["id"]}')
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body['books'] == [{'id': book['id'], 'title': book['title']}]
-
-
-async def test_create_author_returns_empty_books(client: AsyncClient) -> None:
-    response = await client.post('/authors', json=_payload())
+async def test_create_author_strips_book_title(client: AsyncClient) -> None:
+    response = await client.post('/authors', json=_payload(books=[{'title': '  Война и мир  '}]))
 
     assert response.status_code == 201
-    assert response.json()['books'] == []
+    assert response.json()['books'][0]['title'] == 'Война и мир'
+
+
+async def test_create_author_empty_book_title(client: AsyncClient) -> None:
+    response = await client.post('/authors', json=_payload(books=[{'title': ''}]))
+
+    assert response.status_code == 422
+
+
+async def test_delete_author_soft_retains_book_row(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = (
+        await client.post('/authors', json=_payload(books=[{'title': 'Война и мир'}]))
+    ).json()
+    book_id = created['books'][0]['id']
+
+    await client.delete(f'/authors/{created["id"]}')
+
+    book = (
+        await db_session.execute(
+            select(BookModel)
+            .where(BookModel.id == UUID(book_id))
+            .execution_options(include_deleted=True)
+        )
+    ).scalar_one()
+    assert book.is_deleted is True

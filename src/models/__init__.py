@@ -1,8 +1,9 @@
 from src.models.authors import AuthorModel
 from src.models.base import Base
-from src.models.book_genres import book_genres
 from src.models.books import BookModel
+from src.models.genre_moods import genre_moods
 from src.models.genres import GenreModel
+from src.models.moods import MoodModel
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
 
@@ -11,7 +12,8 @@ __all__ = [
     'Base',
     'BookModel',
     'GenreModel',
+    'MoodModel',
     'UserModel',
     'UserProfileModel',
-    'book_genres',
+    'genre_moods',
 ]

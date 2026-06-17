@@ -10,14 +10,14 @@ from src.models.base import AnalyticsMixin, Base
 from src.models.genre_moods import genre_moods
 
 if TYPE_CHECKING:
-    from src.models.moods import MoodModel
+    from src.models.genres import GenreModel
 
 
-class GenreModel(AnalyticsMixin, Base):
-    __tablename__ = 'genres'
+class MoodModel(AnalyticsMixin, Base):
+    __tablename__ = 'moods'
     __table_args__ = (
         sa.Index(
-            'uq_genres_name_active',
+            'uq_moods_name_active',
             'name',
             unique=True,
             postgresql_where=sa.text('is_deleted = false'),
@@ -27,7 +27,7 @@ class GenreModel(AnalyticsMixin, Base):
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     name: Mapped[str] = mapped_column(sa.String(128), nullable=False)
 
-    moods: Mapped[list[MoodModel]] = relationship(
+    genres: Mapped[list[GenreModel]] = relationship(
         secondary=genre_moods,
-        back_populates='genres',
+        back_populates='moods',
     )

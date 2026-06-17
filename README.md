@@ -4,9 +4,13 @@
 
 ## Сущности
 
+Три независимые пары; CRUD ведётся по родительской сущности пары (`User`,
+`Author`, `Genre`), дочерние передаются вложенным JSON — вторичные ключи в API
+не показываются.
+
 - **User ↔ UserProfile** — 1:1
 - **Author → Book** — 1:N
-- **Book ↔ Genre** — M:N (через `book_genres`)
+- **Genre ↔ Mood** — M:N (через `genre_moods`)
 
 Идентификаторы — UUIDv7. Роуты API смонтированы под префиксом `/v1`.
 
@@ -46,7 +50,7 @@ uv run python -m src.main
 uv run pytest
 ```
 
-PostgreSQL поднимается в одноразовом контейнере через `testcontainers` (`postgres:17-alpine`) — отдельная БД и `.env` не нужны, нужен только запущенный Docker. Схема пересоздаётся перед каждым тестом. 69 тестов e2e через `httpx.AsyncClient` + `ASGITransport`.
+PostgreSQL поднимается в одноразовом контейнере через `testcontainers` (`postgres:17-alpine`) — отдельная БД и `.env` не нужны, нужен только запущенный Docker. Схема пересоздаётся перед каждым тестом. Тесты e2e через `httpx.AsyncClient` + `ASGITransport`.
 
 ## Апгрейд стартового шаблона
 

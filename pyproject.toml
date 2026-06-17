@@ -1,7 +1,7 @@
 [project]
 name = "eldar-pet-crud"
 version = "0.1.0"
-description = "Async FastAPI CRUD over Users/Authors/Books/Genres with SQLAlchemy + Alembic"
+description = "Async FastAPI CRUD over Users/Authors/Genres with SQLAlchemy + Alembic"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from src.exceptions import ObjectNotFoundError
 from src.models.authors import AuthorModel
+from src.models.books import BookModel
 from src.schemas.authors import AuthorCreate, AuthorUpdate
 
 
@@ -25,7 +26,10 @@ class AuthorService:
         return author
 
     async def create(self, payload: AuthorCreate) -> AuthorModel:
-        author = AuthorModel(**payload.model_dump())
+        author = AuthorModel(
+            **payload.model_dump(exclude={'books'}),
+            books=[BookModel(**book.model_dump()) for book in payload.books],
+        )
         self.session.add(author)
         await self.session.flush()
         await self.session.refresh(author, attribute_names=['books'])
@@ -36,9 +40,11 @@ class AuthorService:
 
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorModel:
         author = await self._get_with_books(author_id)
-        for field, value in payload.model_dump().items():
+        for field, value in payload.model_dump(exclude={'books'}).items():
             setattr(author, field, value)
+        author.books = [BookModel(**book.model_dump()) for book in payload.books]
         await self.session.flush()
+        await self.session.refresh(author, attribute_names=['books'])
         return author
 
     async def delete(self, author_id: UUID) -> None:

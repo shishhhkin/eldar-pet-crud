@@ -5,7 +5,6 @@ from src.exceptions.base import (
     ObjectNotFoundError,
     ValidationAppError,
 )
-from src.exceptions.books import GenresNotFound
 
 __all__ = [
     'AppError',
@@ -13,5 +12,4 @@ __all__ = [
     'NotFoundError',
     'ValidationAppError',
     'ObjectNotFoundError',
-    'GenresNotFound',
 ]
