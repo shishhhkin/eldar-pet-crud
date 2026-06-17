@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated
-
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel
 
 from src.schemas.base import IdentifiedRead
+from src.schemas.fields import DedupName
 
 __all__ = [
     'MoodPayload',
@@ -17,10 +16,7 @@ __all__ = [
 
 
 class MoodPayload(BaseModel):
-    name: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
-    ]
+    name: DedupName
 
 
 class MoodShortRead(IdentifiedRead):
@@ -28,11 +24,8 @@ class MoodShortRead(IdentifiedRead):
 
 
 class GenreBase(BaseModel):
-    name: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
-    ]
-    moods: list[MoodPayload] = Field(default_factory=list)
+    name: DedupName
+    moods: list[MoodPayload] = []
 
 
 class GenreCreate(GenreBase):

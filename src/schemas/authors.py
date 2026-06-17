@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated
-
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel
 
 from src.schemas.base import IdentifiedRead
+from src.schemas.fields import LongText, PersonName, ShortText
 
 __all__ = [
     'BookPayload',
@@ -17,10 +16,7 @@ __all__ = [
 
 
 class BookPayload(BaseModel):
-    title: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
-    ]
+    title: ShortText
 
 
 class BookShortRead(IdentifiedRead):
@@ -28,18 +24,9 @@ class BookShortRead(IdentifiedRead):
 
 
 class AuthorBase(BaseModel):
-    name: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
-    ]
-    bio: (
-        Annotated[
-            str,
-            StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
-        ]
-        | None
-    ) = None
-    books: list[BookPayload] = Field(default_factory=list)
+    name: PersonName
+    bio: LongText | None = None
+    books: list[BookPayload] = []
 
 
 class AuthorCreate(AuthorBase):
