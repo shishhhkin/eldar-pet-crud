@@ -119,10 +119,10 @@ async def test_delete_cascades_profile(client: AsyncClient, db_session: AsyncSes
     assert count_after == 0
 
     rows = (
-        await db_session.execute(
-            select(UserProfileModel).execution_options(include_deleted=True)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(UserProfileModel).execution_options(include_deleted=True)))
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     assert rows[0].is_deleted is True
 

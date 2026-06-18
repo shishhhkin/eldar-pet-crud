@@ -31,7 +31,5 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         start = time.time()
         response = await call_next(request)
         elapsed = time.time() - start
-        logger.info(
-            f'{request.method} {request.url.path} {response.status_code} {elapsed:.3f}s'
-        )
+        logger.info(f'{request.method} {request.url.path} {response.status_code} {elapsed:.3f}s')
         return response
