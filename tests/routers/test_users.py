@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user_profiles import UserProfileModel
+from src.repository import Repo
 
 
 def _payload(
@@ -71,7 +72,7 @@ async def test_update_user(client: AsyncClient) -> None:
         bio='updated',
         socials={'gh': 'alice'},
     )
-    response = await client.put(f'/users/{created["id"]}', json=new_payload)
+    response = await client.patch(f'/users/{created["id"]}', json=new_payload)
 
     assert response.status_code == 200
     body = response.json()
@@ -86,7 +87,7 @@ async def test_update_user(client: AsyncClient) -> None:
 
 
 async def test_update_user_not_found(client: AsyncClient) -> None:
-    response = await client.put(f'/users/{uuid4()}', json=_payload())
+    response = await client.patch(f'/users/{uuid4()}', json=_payload())
 
     assert response.status_code == 404
 
@@ -110,19 +111,17 @@ async def test_delete_user_not_found(client: AsyncClient) -> None:
 async def test_delete_cascades_profile(client: AsyncClient, db_session: AsyncSession) -> None:
     created = (await client.post('/users', json=_payload())).json()
 
+    profile_repo = Repo(db_session, UserProfileModel)
+
     count_before = await db_session.scalar(select(func.count()).select_from(UserProfileModel))
     assert count_before == 1
 
     await client.delete(f'/users/{created["id"]}')
 
-    count_after = await db_session.scalar(select(func.count()).select_from(UserProfileModel))
-    assert count_after == 0
+    visible = await profile_repo.scalars(profile_repo.select())
+    assert visible == []
 
-    rows = (
-        (await db_session.execute(select(UserProfileModel).execution_options(include_deleted=True)))
-        .scalars()
-        .all()
-    )
+    rows = await profile_repo.scalars(profile_repo.select(include_deleted=True))
     assert len(rows) == 1
     assert rows[0].is_deleted is True
 

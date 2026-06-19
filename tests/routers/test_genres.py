@@ -9,7 +9,7 @@ from src.models.moods import MoodModel
 
 
 def _payload(name: str = 'фантастика', *, moods: list[dict] | None = None) -> dict:
-    return {'name': name, 'moods': moods if moods is not None else []}
+    return {'name': name, 'moods': moods if moods is not None else [{'name': 'грусть'}]}
 
 
 async def test_create_genre(client: AsyncClient) -> None:
@@ -18,7 +18,7 @@ async def test_create_genre(client: AsyncClient) -> None:
     assert response.status_code == 201
     body = response.json()
     assert body['name'] == 'фантастика'
-    assert body['moods'] == []
+    assert [mood['name'] for mood in body['moods']] == ['грусть']
     assert 'id' in body
 
 
@@ -61,7 +61,7 @@ async def test_update_genre_scalar_and_moods(client: AsyncClient) -> None:
         await client.post('/genres', json=_payload('old', moods=[{'name': 'грусть'}]))
     ).json()
 
-    response = await client.put(
+    response = await client.patch(
         f'/genres/{created["id"]}', json=_payload('new', moods=[{'name': 'радость'}])
     )
 
@@ -72,17 +72,16 @@ async def test_update_genre_scalar_and_moods(client: AsyncClient) -> None:
     assert [mood['name'] for mood in body['moods']] == ['радость']
 
 
-async def test_update_genre_clears_moods(client: AsyncClient) -> None:
+async def test_update_genre_rejects_empty_moods(client: AsyncClient) -> None:
     created = (await client.post('/genres', json=_payload('x', moods=[{'name': 'грусть'}]))).json()
 
-    response = await client.put(f'/genres/{created["id"]}', json=_payload('x', moods=[]))
+    response = await client.patch(f'/genres/{created["id"]}', json={'moods': []})
 
-    assert response.status_code == 200
-    assert response.json()['moods'] == []
+    assert response.status_code == 422
 
 
 async def test_update_genre_not_found(client: AsyncClient) -> None:
-    response = await client.put(f'/genres/{uuid4()}', json=_payload('x'))
+    response = await client.patch(f'/genres/{uuid4()}', json=_payload('x'))
 
     assert response.status_code == 404
 

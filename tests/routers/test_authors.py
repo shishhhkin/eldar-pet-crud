@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.books import BookModel
+from src.repository import Repo
 
 
 def _payload(
@@ -73,7 +74,7 @@ async def test_read_author_not_found(client: AsyncClient) -> None:
 async def test_update_author_scalar_fields(client: AsyncClient) -> None:
     created = (await client.post('/authors', json=_payload())).json()
 
-    response = await client.put(
+    response = await client.patch(
         f'/authors/{created["id"]}',
         json=_payload(name='Л. Н. Толстой', bio=None),
     )
@@ -88,7 +89,7 @@ async def test_update_author_scalar_fields(client: AsyncClient) -> None:
 async def test_update_author_replaces_books(client: AsyncClient) -> None:
     created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
 
-    response = await client.put(
+    response = await client.patch(
         f'/authors/{created["id"]}',
         json=_payload(books=[{'title': 'Новое'}]),
     )
@@ -104,7 +105,7 @@ async def test_update_author_clears_books(client: AsyncClient) -> None:
         await client.post('/authors', json=_payload(books=[{'title': 'Война и мир'}]))
     ).json()
 
-    response = await client.put(f'/authors/{created["id"]}', json=_payload(books=[]))
+    response = await client.patch(f'/authors/{created["id"]}', json=_payload(books=[]))
 
     assert response.status_code == 200
     assert response.json()['books'] == []
@@ -115,18 +116,15 @@ async def test_update_author_hard_deletes_replaced_books(
 ) -> None:
     created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
 
-    await client.put(f'/authors/{created["id"]}', json=_payload(books=[{'title': 'Новое'}]))
+    await client.patch(f'/authors/{created["id"]}', json=_payload(books=[{'title': 'Новое'}]))
 
-    rows = (
-        (await db_session.execute(select(BookModel).execution_options(include_deleted=True)))
-        .scalars()
-        .all()
-    )
+    book_repo = Repo(db_session, BookModel)
+    rows = await book_repo.scalars(book_repo.select(include_deleted=True))
     assert [book.title for book in rows] == ['Новое']
 
 
 async def test_update_author_not_found(client: AsyncClient) -> None:
-    response = await client.put(f'/authors/{uuid4()}', json=_payload())
+    response = await client.patch(f'/authors/{uuid4()}', json=_payload())
 
     assert response.status_code == 404
 
@@ -157,19 +155,17 @@ async def test_delete_author_soft_cascades_books(
         )
     ).json()
 
+    book_repo = Repo(db_session, BookModel)
+
     count_before = await db_session.scalar(select(func.count()).select_from(BookModel))
     assert count_before == 2
 
     await client.delete(f'/authors/{created["id"]}')
 
-    count_after = await db_session.scalar(select(func.count()).select_from(BookModel))
-    assert count_after == 0
+    visible = await book_repo.scalars(book_repo.select())
+    assert visible == []
 
-    rows = (
-        (await db_session.execute(select(BookModel).execution_options(include_deleted=True)))
-        .scalars()
-        .all()
-    )
+    rows = await book_repo.scalars(book_repo.select(include_deleted=True))
     assert len(rows) == 2
     assert all(book.is_deleted for book in rows)
 
@@ -222,11 +218,5 @@ async def test_delete_author_soft_retains_book_row(
 
     await client.delete(f'/authors/{created["id"]}')
 
-    book = (
-        await db_session.execute(
-            select(BookModel)
-            .where(BookModel.id == UUID(book_id))
-            .execution_options(include_deleted=True)
-        )
-    ).scalar_one()
+    book = await Repo(db_session, BookModel).get(UUID(book_id), include_deleted=True)
     assert book.is_deleted is True
