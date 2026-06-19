@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Body, status
 
 from src.dependencies import UserServiceDep, UserServiceTxDep
 from src.schemas.errors import (
@@ -9,7 +10,13 @@ from src.schemas.errors import (
     READ_RESPONSES,
     UPDATE_RESPONSES,
 )
-from src.schemas.users import UserCreate, UserRead, UserUpdate
+from src.schemas.users import (
+    USER_CREATE_EXAMPLES,
+    USER_UPDATE_EXAMPLES,
+    UserCreate,
+    UserRead,
+    UserUpdate,
+)
 
 router = APIRouter(prefix='/users', tags=['users'])
 
@@ -20,7 +27,10 @@ router = APIRouter(prefix='/users', tags=['users'])
     status_code=status.HTTP_201_CREATED,
     responses=CREATE_RESPONSES,
 )
-async def create_user(payload: UserCreate, service: UserServiceTxDep) -> UserRead:
+async def create_user(
+    payload: Annotated[UserCreate, Body(openapi_examples=USER_CREATE_EXAMPLES)],
+    service: UserServiceTxDep,
+) -> UserRead:
     return await service.create(payload)  # type: ignore[return-value]
 
 
@@ -29,8 +39,12 @@ async def read_user(user_id: UUID, service: UserServiceDep) -> UserRead:
     return await service.get(user_id)  # type: ignore[return-value]
 
 
-@router.put('/{user_id}', response_model=UserRead, responses=UPDATE_RESPONSES)
-async def update_user(user_id: UUID, payload: UserUpdate, service: UserServiceTxDep) -> UserRead:
+@router.patch('/{user_id}', response_model=UserRead, responses=UPDATE_RESPONSES)
+async def update_user(
+    user_id: UUID,
+    payload: Annotated[UserUpdate, Body(openapi_examples=USER_UPDATE_EXAMPLES)],
+    service: UserServiceTxDep,
+) -> UserRead:
     return await service.update(user_id, payload)  # type: ignore[return-value]
 
 

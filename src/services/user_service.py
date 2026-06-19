@@ -41,15 +41,18 @@ class UserService:
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserModel:
         user = await self._get_with_profile(user_id)
 
-        for field, value in payload.model_dump(mode='json', exclude={'profile'}).items():
-            setattr(user, field, value)
+        if payload.username is not None:
+            user.username = payload.username
+        if payload.email is not None:
+            user.email = payload.email
 
-        profile_data = payload.profile.model_dump(mode='json')
-        if user.profile is None:
-            user.profile = UserProfileModel(**profile_data)
-        else:
-            for key, value in profile_data.items():
-                setattr(user.profile, key, value)
+        if payload.profile is not None:
+            profile_data = payload.profile.model_dump(mode='json')
+            if user.profile is None:
+                user.profile = UserProfileModel(**profile_data)
+            else:
+                for key, value in profile_data.items():
+                    setattr(user.profile, key, value)
 
         await self.session.flush()
         return user

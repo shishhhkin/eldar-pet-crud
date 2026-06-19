@@ -1,9 +1,16 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Body, status
 
 from src.dependencies import AuthorServiceDep, AuthorServiceTxDep
-from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
+from src.schemas.authors import (
+    AUTHOR_CREATE_EXAMPLES,
+    AUTHOR_UPDATE_EXAMPLES,
+    AuthorCreate,
+    AuthorRead,
+    AuthorUpdate,
+)
 from src.schemas.errors import (
     CREATE_RESPONSES,
     DELETE_RESPONSES,
@@ -20,7 +27,10 @@ router = APIRouter(prefix='/authors', tags=['authors'])
     status_code=status.HTTP_201_CREATED,
     responses=CREATE_RESPONSES,
 )
-async def create_author(payload: AuthorCreate, service: AuthorServiceTxDep) -> AuthorRead:
+async def create_author(
+    payload: Annotated[AuthorCreate, Body(openapi_examples=AUTHOR_CREATE_EXAMPLES)],
+    service: AuthorServiceTxDep,
+) -> AuthorRead:
     return await service.create(payload)  # type: ignore[return-value]
 
 
@@ -29,9 +39,11 @@ async def read_author(author_id: UUID, service: AuthorServiceDep) -> AuthorRead:
     return await service.get(author_id)  # type: ignore[return-value]
 
 
-@router.put('/{author_id}', response_model=AuthorRead, responses=UPDATE_RESPONSES)
+@router.patch('/{author_id}', response_model=AuthorRead, responses=UPDATE_RESPONSES)
 async def update_author(
-    author_id: UUID, payload: AuthorUpdate, service: AuthorServiceTxDep
+    author_id: UUID,
+    payload: Annotated[AuthorUpdate, Body(openapi_examples=AUTHOR_UPDATE_EXAMPLES)],
+    service: AuthorServiceTxDep,
 ) -> AuthorRead:
     return await service.update(author_id, payload)  # type: ignore[return-value]
 

@@ -40,9 +40,13 @@ class AuthorService:
 
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorModel:
         author = await self._get_with_books(author_id)
-        for field, value in payload.model_dump(exclude={'books'}).items():
-            setattr(author, field, value)
-        author.books = [BookModel(**book.model_dump()) for book in payload.books]
+        fields = payload.model_fields_set
+        if payload.name is not None:
+            author.name = payload.name
+        if 'bio' in fields:
+            author.bio = payload.bio
+        if 'books' in fields and payload.books is not None:
+            author.books = [BookModel(**book.model_dump()) for book in payload.books]
         await self.session.flush()
         await self.session.refresh(author, attribute_names=['books'])
         return author

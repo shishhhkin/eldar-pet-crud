@@ -49,9 +49,10 @@ class GenreService:
 
     async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
         genre = await self._get_with_moods(genre_id)
-        for field, value in payload.model_dump(exclude={'moods'}).items():
-            setattr(genre, field, value)
-        genre.moods = await self._resolve_moods([mood.name for mood in payload.moods])
+        if payload.name is not None:
+            genre.name = payload.name
+        if payload.moods is not None:
+            genre.moods = await self._resolve_moods([mood.name for mood in payload.moods])
         await self.session.flush()
         await self.session.refresh(genre, attribute_names=['moods'])
         return genre

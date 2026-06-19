@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Body, status
 
 from src.dependencies import GenreServiceDep, GenreServiceTxDep
 from src.schemas.errors import (
@@ -9,7 +10,13 @@ from src.schemas.errors import (
     READ_RESPONSES,
     UPDATE_RESPONSES,
 )
-from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
+from src.schemas.genres import (
+    GENRE_CREATE_EXAMPLES,
+    GENRE_UPDATE_EXAMPLES,
+    GenreCreate,
+    GenreRead,
+    GenreUpdate,
+)
 
 router = APIRouter(prefix='/genres', tags=['genres'])
 
@@ -20,7 +27,10 @@ router = APIRouter(prefix='/genres', tags=['genres'])
     status_code=status.HTTP_201_CREATED,
     responses=CREATE_RESPONSES,
 )
-async def create_genre(payload: GenreCreate, service: GenreServiceTxDep) -> GenreRead:
+async def create_genre(
+    payload: Annotated[GenreCreate, Body(openapi_examples=GENRE_CREATE_EXAMPLES)],
+    service: GenreServiceTxDep,
+) -> GenreRead:
     return await service.create(payload)  # type: ignore[return-value]
 
 
@@ -29,9 +39,11 @@ async def read_genre(genre_id: UUID, service: GenreServiceDep) -> GenreRead:
     return await service.get(genre_id)  # type: ignore[return-value]
 
 
-@router.put('/{genre_id}', response_model=GenreRead, responses=UPDATE_RESPONSES)
+@router.patch('/{genre_id}', response_model=GenreRead, responses=UPDATE_RESPONSES)
 async def update_genre(
-    genre_id: UUID, payload: GenreUpdate, service: GenreServiceTxDep
+    genre_id: UUID,
+    payload: Annotated[GenreUpdate, Body(openapi_examples=GENRE_UPDATE_EXAMPLES)],
+    service: GenreServiceTxDep,
 ) -> GenreRead:
     return await service.update(genre_id, payload)  # type: ignore[return-value]
 
