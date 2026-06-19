@@ -25,6 +25,7 @@ SessionFactory = async_sessionmaker(
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with SessionFactory() as session:
+        await session.connection(execution_options={'postgresql_readonly': True})
         yield session
 
 
