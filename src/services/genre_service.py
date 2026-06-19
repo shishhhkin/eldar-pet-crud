@@ -31,15 +31,10 @@ class GenreService:
         unique_names = list(dict.fromkeys(names))
         stmt = select(MoodModel).where(MoodModel.name.in_(unique_names))
         existing = {mood.name: mood for mood in (await self.session.execute(stmt)).scalars().all()}
-        resolved: list[MoodModel] = []
-        for name in unique_names:
-            mood = existing.get(name)
-            if mood is None:
-                mood = MoodModel(name=name)
-                self.session.add(mood)
-                existing[name] = mood
-            resolved.append(mood)
-        return resolved
+        new_moods = [MoodModel(name=name) for name in unique_names if name not in existing]
+        self.session.add_all(new_moods)
+        existing.update({mood.name: mood for mood in new_moods})
+        return [existing[name] for name in unique_names]
 
     async def create(self, payload: GenreCreate) -> GenreModel:
         genre = GenreModel(**payload.model_dump(exclude={'moods'}))
@@ -62,6 +57,8 @@ class GenreService:
         return genre
 
     async def delete(self, genre_id: UUID) -> None:
-        genre = await self._get_with_moods(genre_id)
+        genre = await self.session.get(GenreModel, genre_id)
+        if genre is None:
+            raise ObjectNotFoundError(GenreModel, genre_id)
         genre.is_deleted = True
         await self.session.flush()

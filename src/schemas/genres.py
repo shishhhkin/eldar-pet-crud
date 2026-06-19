@@ -1,25 +1,33 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 from src.schemas.base import IdentifiedRead
 from src.schemas.fields import DedupName
 
-__all__ = [
-    'MoodPayload',
-    'MoodShortRead',
-    'GenreBase',
-    'GenreCreate',
-    'GenreUpdate',
-    'GenreRead',
-]
+_GENRE_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+_MOOD_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
+
+_MOOD_PAYLOAD_EXAMPLE: dict[str, Any] = {'name': 'Меланхоличное'}
+_MOOD_READ_EXAMPLE: dict[str, Any] = {'id': _MOOD_ID_EXAMPLE, 'name': 'Меланхоличное'}
+_GENRE_PAYLOAD_EXAMPLE: dict[str, Any] = {
+    'name': 'Фэнтези',
+    'moods': [{'name': 'Меланхоличное'}, {'name': 'Атмосферное'}],
+}
+_GENRE_READ_EXAMPLE: dict[str, Any] = {
+    'id': _GENRE_ID_EXAMPLE,
+    'name': 'Фэнтези',
+    'moods': [_MOOD_READ_EXAMPLE],
+}
 
 
 class MoodPayload(BaseModel):
     name: DedupName
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': [{'name': 'Меланхоличное'}]},
+        json_schema_extra={'examples': [_MOOD_PAYLOAD_EXAMPLE]},
     )
 
 
@@ -27,11 +35,7 @@ class MoodShortRead(IdentifiedRead):
     name: str
 
     model_config = ConfigDict(
-        json_schema_extra={
-            'examples': [
-                {'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6', 'name': 'Меланхоличное'},
-            ],
-        },
+        json_schema_extra={'examples': [_MOOD_READ_EXAMPLE]},
     )
 
 
@@ -40,14 +44,7 @@ class GenreBase(BaseModel):
     moods: list[MoodPayload] = []
 
     model_config = ConfigDict(
-        json_schema_extra={
-            'examples': [
-                {
-                    'name': 'Фэнтези',
-                    'moods': [{'name': 'Меланхоличное'}, {'name': 'Атмосферное'}],
-                },
-            ],
-        },
+        json_schema_extra={'examples': [_GENRE_PAYLOAD_EXAMPLE]},
     )
 
 
@@ -64,18 +61,5 @@ class GenreRead(IdentifiedRead):
     moods: list[MoodShortRead]
 
     model_config = ConfigDict(
-        json_schema_extra={
-            'examples': [
-                {
-                    'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6',
-                    'name': 'Фэнтези',
-                    'moods': [
-                        {
-                            'id': '3fa85f64-5717-4562-b3fc-2c963f66afa6',
-                            'name': 'Меланхоличное',
-                        },
-                    ],
-                },
-            ],
-        },
+        json_schema_extra={'examples': [_GENRE_READ_EXAMPLE]},
     )
