@@ -1,7 +1,7 @@
 from sqlalchemy import event
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
-from src.models.base import AnalyticsMixin
+from src.models.base import Base
 
 
 @event.listens_for(Session, 'do_orm_execute')
@@ -14,7 +14,7 @@ def _filter_soft_deleted(execute_state: ORMExecuteState) -> None:
     ):
         execute_state.statement = execute_state.statement.options(
             with_loader_criteria(
-                AnalyticsMixin,
+                Base,
                 lambda cls: cls.is_deleted.is_(False),
                 include_aliases=True,
             )

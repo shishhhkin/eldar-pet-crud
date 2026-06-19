@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID, uuid7
 
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -15,12 +16,7 @@ NAMING_CONVENTION = {
 class Base(DeclarativeBase):
     metadata = sa.MetaData(naming_convention=NAMING_CONVENTION)
 
-    @classmethod
-    def on_conflict_constraint(cls) -> tuple | None:
-        return None
-
-
-class AnalyticsMixin:
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         server_default=sa.func.now(),

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid7
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import AnalyticsMixin, Base
+from src.models.base import Base
 from src.models.genre_moods import genre_moods
 
 if TYPE_CHECKING:
     from src.models.moods import MoodModel
 
 
-class GenreModel(AnalyticsMixin, Base):
+class GenreModel(Base):
     __tablename__ = 'genres'
     __table_args__ = (
         sa.Index(
@@ -24,7 +23,6 @@ class GenreModel(AnalyticsMixin, Base):
         ),
     )
 
-    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     name: Mapped[str] = mapped_column(sa.String(128), nullable=False)
 
     moods: Mapped[list[MoodModel]] = relationship(

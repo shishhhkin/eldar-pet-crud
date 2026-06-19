@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid7
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import AnalyticsMixin, Base
+from src.models.base import Base
 
 if TYPE_CHECKING:
     from src.models.users import UserModel
 
 
-class UserProfileModel(AnalyticsMixin, Base):
+class UserProfileModel(Base):
     __tablename__ = 'user_profiles'
 
-    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(
         sa.Uuid,
         sa.ForeignKey('users.id', ondelete='CASCADE', onupdate='CASCADE'),
