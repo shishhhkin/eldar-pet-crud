@@ -12,38 +12,6 @@ _CONFLICT_DESC = 'Конфликт: нарушение уникальности 
 _BODY_VALIDATION_DESC = 'Ошибка валидации тела запроса'
 _PATH_VALIDATION_DESC = 'Некорректный формат id в пути'
 
-_NOT_FOUND_EXAMPLE: dict[str, Any] = {
-    'code': 'not_found',
-    'detail': f'Resource {_RESOURCE_ID_EXAMPLE} not found',
-    'request_id': _REQUEST_ID_EXAMPLE,
-}
-_CONFLICT_EXAMPLE: dict[str, Any] = {
-    'code': 'conflict',
-    'detail': 'Conflict: resource violates a uniqueness or relational constraint',
-    'request_id': _REQUEST_ID_EXAMPLE,
-}
-_BODY_VALIDATION_EXAMPLE: dict[str, Any] = {
-    'detail': [
-        {
-            'type': 'string_too_short',
-            'loc': ['body', '<field>'],
-            'msg': 'String should have at least 1 character',
-            'input': '',
-            'ctx': {'min_length': 1},
-        },
-    ],
-}
-_PATH_VALIDATION_EXAMPLE: dict[str, Any] = {
-    'detail': [
-        {
-            'type': 'uuid_parsing',
-            'loc': ['path', '<id>'],
-            'msg': 'Input should be a valid UUID',
-            'input': '<not-a-uuid>',
-        },
-    ],
-}
-
 
 class ErrorResponse(BaseModel):
     code: str
@@ -52,11 +20,31 @@ class ErrorResponse(BaseModel):
 
 
 class NotFoundResponse(ErrorResponse):
-    model_config = ConfigDict(json_schema_extra={'examples': [_NOT_FOUND_EXAMPLE]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                ErrorResponse(
+                    code='not_found',
+                    detail=f'Resource {_RESOURCE_ID_EXAMPLE} not found',
+                    request_id=_REQUEST_ID_EXAMPLE,
+                ).model_dump(mode='json')
+            ]
+        }
+    )
 
 
 class ConflictResponse(ErrorResponse):
-    model_config = ConfigDict(json_schema_extra={'examples': [_CONFLICT_EXAMPLE]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                ErrorResponse(
+                    code='conflict',
+                    detail='Conflict: resource violates a uniqueness or relational constraint',
+                    request_id=_REQUEST_ID_EXAMPLE,
+                ).model_dump(mode='json')
+            ]
+        }
+    )
 
 
 class ValidationErrorItem(BaseModel):
@@ -70,13 +58,44 @@ class ValidationErrorItem(BaseModel):
 class BodyValidationResponse(BaseModel):
     detail: list[ValidationErrorItem]
 
-    model_config = ConfigDict(json_schema_extra={'examples': [_BODY_VALIDATION_EXAMPLE]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                {
+                    'detail': [
+                        ValidationErrorItem(
+                            type='string_too_short',
+                            loc=['body', '<field>'],
+                            msg='String should have at least 1 character',
+                            input='',
+                            ctx={'min_length': 1},
+                        ).model_dump(mode='json', exclude_none=True)
+                    ]
+                }
+            ]
+        }
+    )
 
 
 class PathValidationResponse(BaseModel):
     detail: list[ValidationErrorItem]
 
-    model_config = ConfigDict(json_schema_extra={'examples': [_PATH_VALIDATION_EXAMPLE]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                {
+                    'detail': [
+                        ValidationErrorItem(
+                            type='uuid_parsing',
+                            loc=['path', '<id>'],
+                            msg='Input should be a valid UUID',
+                            input='<not-a-uuid>',
+                        ).model_dump(mode='json', exclude_none=True)
+                    ]
+                }
+            ]
+        }
+    )
 
 
 CREATE_RESPONSES: dict[int | str, dict[str, Any]] = {

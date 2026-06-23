@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Final
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import (
 from src.config import Settings
 
 settings = Settings()  # type: ignore[call-arg]
+
+READONLY_EXECUTION_OPTIONS: Final = {'postgresql_readonly': True}
 
 engine: AsyncEngine = create_async_engine(
     str(settings.postgres_url),
@@ -25,7 +28,7 @@ SessionFactory = async_sessionmaker(
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with SessionFactory() as session:
-        await session.connection(execution_options={'postgresql_readonly': True})
+        await session.connection(execution_options=READONLY_EXECUTION_OPTIONS)
         yield session
 
 
