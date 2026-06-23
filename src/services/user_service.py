@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.user_profiles import UserProfileModel
+from src.mappers.users import apply_user_update, to_user_model
 from src.models.users import UserModel
 from src.repository import Repo
 from src.schemas.users import UserCreate, UserUpdate
@@ -14,10 +14,7 @@ class UserService:
         self.repo = Repo(session, UserModel)
 
     async def create(self, payload: UserCreate) -> UserModel:
-        user = UserModel(
-            **payload.model_dump(mode='json', exclude={'profile'}),
-            profile=UserProfileModel(**payload.profile.model_dump(mode='json')),
-        )
+        user = to_user_model(payload)
         self.repo.add(user)
         await self.repo.flush()
         await self.repo.refresh(user, ['profile'])
@@ -28,20 +25,7 @@ class UserService:
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserModel:
         user = await self.repo.get(user_id, selectinload(UserModel.profile))
-
-        if payload.username is not None:
-            user.username = payload.username
-        if payload.email is not None:
-            user.email = payload.email
-
-        if payload.profile is not None:
-            profile_data = payload.profile.model_dump(mode='json')
-            if user.profile is None:
-                user.profile = UserProfileModel(**profile_data)
-            else:
-                for key, value in profile_data.items():
-                    setattr(user.profile, key, value)
-
+        apply_user_update(user, payload)
         await self.repo.flush()
         return user
 

@@ -3,8 +3,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.mappers.authors import apply_author_update, to_author_model
 from src.models.authors import AuthorModel
-from src.models.books import BookModel
 from src.repository import Repo
 from src.schemas.authors import AuthorCreate, AuthorUpdate
 
@@ -14,10 +14,7 @@ class AuthorService:
         self.repo = Repo(session, AuthorModel)
 
     async def create(self, payload: AuthorCreate) -> AuthorModel:
-        author = AuthorModel(
-            **payload.model_dump(exclude={'books'}),
-            books=[BookModel(**book.model_dump()) for book in payload.books],
-        )
+        author = to_author_model(payload)
         self.repo.add(author)
         await self.repo.flush()
         await self.repo.refresh(author, ['books'])
@@ -28,13 +25,7 @@ class AuthorService:
 
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorModel:
         author = await self.repo.get(author_id, selectinload(AuthorModel.books))
-        fields = payload.model_fields_set
-        if payload.name is not None:
-            author.name = payload.name
-        if 'bio' in fields:
-            author.bio = payload.bio
-        if 'books' in fields and payload.books is not None:
-            author.books = [BookModel(**book.model_dump()) for book in payload.books]
+        apply_author_update(author, payload)
         await self.repo.flush()
         await self.repo.refresh(author, ['books'])
         return author

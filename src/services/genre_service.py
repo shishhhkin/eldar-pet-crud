@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.mappers.genres import apply_genre_update, to_genre_model
 from src.models.genres import GenreModel
 from src.models.moods import MoodModel
 from src.repository import Repo
@@ -25,8 +26,8 @@ class GenreService:
         return list(await self.mood_repo.scalars(stmt))
 
     async def create(self, payload: GenreCreate) -> GenreModel:
-        genre = GenreModel(**payload.model_dump(exclude={'moods'}))
-        genre.moods = await self._get_or_create_moods([mood.name for mood in payload.moods])
+        moods = await self._get_or_create_moods([mood.name for mood in payload.moods])
+        genre = to_genre_model(payload, moods)
         self.repo.add(genre)
         await self.repo.flush()
         await self.repo.refresh(genre, ['moods'])
@@ -37,10 +38,12 @@ class GenreService:
 
     async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
         genre = await self.repo.get(genre_id, selectinload(GenreModel.moods))
-        if payload.name is not None:
-            genre.name = payload.name
-        if payload.moods is not None:
-            genre.moods = await self._get_or_create_moods([mood.name for mood in payload.moods])
+        moods = (
+            await self._get_or_create_moods([mood.name for mood in payload.moods])
+            if payload.moods is not None
+            else None
+        )
+        apply_genre_update(genre, payload, moods)
         await self.repo.flush()
         await self.repo.refresh(genre, ['moods'])
         return genre
