@@ -86,6 +86,31 @@ async def test_update_author_scalar_fields(client: AsyncClient) -> None:
     assert body['bio'] is None
 
 
+async def test_update_author_name_only_preserves_fields(client: AsyncClient) -> None:
+    created = (
+        await client.post(
+            '/authors',
+            json=_payload(bio='русский писатель', books=[{'title': 'Война и мир'}]),
+        )
+    ).json()
+
+    response = await client.patch(f'/authors/{created["id"]}', json={'name': 'Л. Н. Толстой'})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['name'] == 'Л. Н. Толстой'
+    assert body['bio'] == 'русский писатель'
+    assert body['books'] == created['books']
+
+
+async def test_update_author_rejects_null_name(client: AsyncClient) -> None:
+    created = (await client.post('/authors', json=_payload())).json()
+
+    response = await client.patch(f'/authors/{created["id"]}', json={'name': None})
+
+    assert response.status_code == 422
+
+
 async def test_update_author_replaces_books(client: AsyncClient) -> None:
     created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
-from src.schemas.fields import LongText, PersonName, ShortText
+from src.schemas.fields import LongText, NotNull, PersonName, ShortText
 
 _AUTHOR_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
 _BOOK_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
@@ -89,7 +89,7 @@ class AuthorCreate(BaseModel):
 
 
 class AuthorUpdate(BaseModel):
-    name: PersonName | None = None
+    name: NotNull[PersonName] = None
     bio: LongText | None = None
     books: list[BookPayload] | None = None
 

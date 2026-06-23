@@ -86,6 +86,34 @@ async def test_update_user(client: AsyncClient) -> None:
     assert body['created_at'] == created['created_at']
 
 
+async def test_update_user_username_only_preserves_fields(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={'username': 'alice2'})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['username'] == 'alice2'
+    assert body['email'] == created['email']
+    assert body['profile'] == created['profile']
+
+
+async def test_update_user_rejects_null_username(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={'username': None})
+
+    assert response.status_code == 422
+
+
+async def test_update_user_rejects_null_email(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={'email': None})
+
+    assert response.status_code == 422
+
+
 async def test_update_user_not_found(client: AsyncClient) -> None:
     response = await client.patch(f'/users/{uuid4()}', json=_payload())
 

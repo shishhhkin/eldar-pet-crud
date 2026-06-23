@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Annotated
+from typing import Annotated, TypeVar
 
-from pydantic import BeforeValidator, StringConstraints
+from pydantic import AfterValidator, BeforeValidator, StringConstraints
+from pydantic_core import PydanticCustomError
+
+_T = TypeVar('_T')
 
 _WHITESPACE_RE = re.compile(r'\s+')
 _WORD_START_RE = re.compile(r'\b\w')
@@ -37,6 +40,15 @@ def _plain_text(value: object) -> object:
     if not isinstance(value, str):
         return value
     return _clean(value)
+
+
+def _forbid_null(value: object) -> object:
+    if value is None:
+        raise PydanticCustomError('not_nullable', 'Value must not be null')
+    return value
+
+
+NotNull = Annotated[_T | None, AfterValidator(_forbid_null)]
 
 
 DedupName = Annotated[

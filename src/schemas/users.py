@@ -15,6 +15,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
+from src.schemas.fields import NotNull
 
 SocialHandle = Annotated[str, StringConstraints(min_length=1, max_length=255)]
 SocialKey = Annotated[str, StringConstraints(min_length=1, max_length=32)]
@@ -116,8 +117,8 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: Username | None = None
-    email: EmailStr | None = None
+    username: NotNull[Username] = None
+    email: NotNull[EmailStr] = None
     profile: UserProfilePayload | None = None
 
     model_config = ConfigDict(

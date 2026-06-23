@@ -6,7 +6,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
-from src.schemas.fields import DedupName
+from src.schemas.fields import DedupName, NotNull
 
 _GENRE_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
 _MOOD_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
@@ -87,7 +87,7 @@ class GenreCreate(BaseModel):
 
 
 class GenreUpdate(BaseModel):
-    name: DedupName | None = None
+    name: NotNull[DedupName] = None
     moods: MoodList | None = None
 
     model_config = ConfigDict(

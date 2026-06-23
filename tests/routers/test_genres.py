@@ -72,6 +72,40 @@ async def test_update_genre_scalar_and_moods(client: AsyncClient) -> None:
     assert [mood['name'] for mood in body['moods']] == ['радость']
 
 
+async def test_update_genre_name_only_preserves_moods(client: AsyncClient) -> None:
+    created = (
+        await client.post('/genres', json=_payload('old', moods=[{'name': 'грусть'}]))
+    ).json()
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'name': 'new'})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['name'] == 'new'
+    assert body['moods'] == created['moods']
+
+
+async def test_update_genre_moods_only_preserves_name(client: AsyncClient) -> None:
+    created = (
+        await client.post('/genres', json=_payload('роман', moods=[{'name': 'грусть'}]))
+    ).json()
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'moods': [{'name': 'радость'}]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['name'] == 'роман'
+    assert [mood['name'] for mood in body['moods']] == ['радость']
+
+
+async def test_update_genre_rejects_null_name(client: AsyncClient) -> None:
+    created = (await client.post('/genres', json=_payload('x'))).json()
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'name': None})
+
+    assert response.status_code == 422
+
+
 async def test_update_genre_rejects_empty_moods(client: AsyncClient) -> None:
     created = (await client.post('/genres', json=_payload('x', moods=[{'name': 'грусть'}]))).json()
 
