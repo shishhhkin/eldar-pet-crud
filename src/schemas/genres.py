@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
@@ -67,9 +67,19 @@ class MoodShortRead(IdentifiedRead):
     )
 
 
+def _dedup_moods(moods: list[MoodPayload]) -> list[MoodPayload]:
+    unique: dict[str, MoodPayload] = {}
+    for mood in moods:
+        unique.setdefault(mood.name, mood)
+    return list(unique.values())
+
+
+MoodList = Annotated[list[MoodPayload], Field(min_length=1), AfterValidator(_dedup_moods)]
+
+
 class GenreCreate(BaseModel):
     name: DedupName
-    moods: Annotated[list[MoodPayload], Field(min_length=1)]
+    moods: MoodList
 
     model_config = ConfigDict(
         json_schema_extra={'examples': _GENRE_CREATE_EXAMPLES},
@@ -78,7 +88,7 @@ class GenreCreate(BaseModel):
 
 class GenreUpdate(BaseModel):
     name: DedupName | None = None
-    moods: Annotated[list[MoodPayload], Field(min_length=1)] | None = None
+    moods: MoodList | None = None
 
     model_config = ConfigDict(
         json_schema_extra={'examples': _GENRE_UPDATE_EXAMPLES},

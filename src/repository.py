@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.sql.base import ExecutableOption
@@ -43,11 +44,23 @@ class Repo[ModelT: Base]:
             raise ObjectNotFoundError(self.model, obj_id)
         return obj
 
+    async def insert_ignoring_conflicts(
+        self, rows: Sequence[dict[str, object]], *, index_elements: Sequence[str]
+    ) -> None:
+        if not rows:
+            return
+        stmt = (
+            pg_insert(self.model)
+            .values(list(rows))
+            .on_conflict_do_nothing(
+                index_elements=list(index_elements),
+                index_where=text('is_deleted = false'),
+            )
+        )
+        await self.session.execute(stmt)
+
     def add(self, instance: ModelT) -> None:
         self.session.add(instance)
-
-    def add_all(self, instances: Sequence[ModelT]) -> None:
-        self.session.add_all(instances)
 
     async def flush(self) -> None:
         await self.session.flush()
