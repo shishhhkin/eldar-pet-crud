@@ -7,9 +7,10 @@ from src.mappers.users import apply_user_update, to_user_model
 from src.models.users import UserModel
 from src.repository import Repo
 from src.schemas.users import UserCreate, UserUpdate
+from src.services.base import BaseService
 
 
-class UserService:
+class UserService(BaseService[UserModel]):
     def __init__(self, session: AsyncSession) -> None:
         self.repo = Repo(session, UserModel)
 
@@ -21,16 +22,16 @@ class UserService:
         return user
 
     async def get(self, user_id: UUID) -> UserModel:
-        return await self.repo.get(user_id, selectinload(UserModel.profile))
+        return await self._get_or_raise(user_id, selectinload(UserModel.profile))
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserModel:
-        user = await self.repo.get(user_id, selectinload(UserModel.profile))
+        user = await self._get_or_raise(user_id, selectinload(UserModel.profile))
         apply_user_update(user, payload)
         await self.repo.flush()
         return user
 
     async def delete(self, user_id: UUID) -> None:
-        user = await self.repo.get(user_id, selectinload(UserModel.profile))
+        user = await self._get_or_raise(user_id, selectinload(UserModel.profile))
         user.is_deleted = True
         if user.profile is not None:
             user.profile.is_deleted = True

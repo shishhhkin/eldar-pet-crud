@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import ObjectNotFoundError
 from src.models.base import Base
 
 
@@ -16,33 +15,25 @@ class Repo[ModelT: Base]:
         self.session = session
         self.model = model
 
-    def select(self, *, include_deleted: bool = False) -> Select[tuple[ModelT]]:
-        stmt = select(self.model)
-        if not include_deleted:
-            stmt = stmt.options(
-                with_loader_criteria(
-                    Base,
-                    lambda cls: cls.is_deleted.is_(False),
-                    include_aliases=True,
-                )
+    def select(self) -> Select[tuple[ModelT]]:
+        return select(self.model).options(
+            with_loader_criteria(
+                Base,
+                lambda cls: cls.is_deleted.is_(False),
+                include_aliases=True,
             )
-        return stmt
+        )
 
     async def scalars(self, stmt: Select[tuple[ModelT]]) -> Sequence[ModelT]:
         return (await self.session.execute(stmt)).scalars().all()
 
-    async def get(
-        self, obj_id: UUID, *options: ExecutableOption, include_deleted: bool = False
-    ) -> ModelT:
-        stmt = (
-            self.select(include_deleted=include_deleted)
-            .where(self.model.id == obj_id)
-            .options(*options)
-        )
-        obj = (await self.session.execute(stmt)).scalar_one_or_none()
-        if obj is None:
-            raise ObjectNotFoundError(self.model, obj_id)
-        return obj
+    async def list(self, *options: ExecutableOption, limit: int, offset: int) -> Sequence[ModelT]:
+        stmt = self.select().options(*options).order_by(self.model.id).limit(limit).offset(offset)
+        return (await self.session.execute(stmt)).scalars().all()
+
+    async def get(self, obj_id: UUID, *options: ExecutableOption) -> ModelT | None:
+        stmt = self.select().where(self.model.id == obj_id).options(*options)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def insert_ignoring_conflicts(
         self, rows: Sequence[dict[str, object]], *, index_elements: Sequence[str]

@@ -149,7 +149,7 @@ async def test_delete_cascades_profile(client: AsyncClient, db_session: AsyncSes
     visible = await profile_repo.scalars(profile_repo.select())
     assert visible == []
 
-    rows = await profile_repo.scalars(profile_repo.select(include_deleted=True))
+    rows = await profile_repo.scalars(select(UserProfileModel))
     assert len(rows) == 1
     assert rows[0].is_deleted is True
 
