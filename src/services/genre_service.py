@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,7 @@ class GenreService(BaseService[GenreModel]):
         self.repo = Repo(session, GenreModel)
         self.mood_repo = Repo(session, MoodModel)
 
-    async def _get_or_create_moods(self, names: list[str]) -> list[MoodModel]:
+    async def _get_or_create_moods(self, names: Sequence[str]) -> Sequence[MoodModel]:
         if not names:
             return []
         await self.mood_repo.insert_ignoring_conflicts(
@@ -24,7 +25,7 @@ class GenreService(BaseService[GenreModel]):
             index_elements=['name'],
         )
         stmt = self.mood_repo.select().where(MoodModel.name.in_(names))
-        return list(await self.mood_repo.scalars(stmt))
+        return await self.mood_repo.scalars(stmt)
 
     async def create(self, payload: GenreCreate) -> GenreModel:
         moods = await self._get_or_create_moods([mood.name for mood in payload.moods])

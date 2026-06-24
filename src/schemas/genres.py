@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -67,7 +68,7 @@ class MoodShortRead(IdentifiedRead):
     )
 
 
-def _dedup_moods(moods: list[MoodPayload]) -> list[MoodPayload]:
+def _dedup_moods(moods: Sequence[MoodPayload]) -> list[MoodPayload]:
     unique: dict[str, MoodPayload] = {}
     for mood in moods:
         unique.setdefault(mood.name, mood)

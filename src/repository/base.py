@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from uuid import UUID
 
 from sqlalchemy import Select, select, text
@@ -36,7 +36,7 @@ class Repo[ModelT: Base]:
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def insert_ignoring_conflicts(
-        self, rows: Sequence[dict[str, object]], *, index_elements: Sequence[str]
+        self, rows: Sequence[Mapping[str, object]], *, index_elements: Sequence[str]
     ) -> None:
         if not rows:
             return
