@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.books import BookModel
 from src.repository import Repo
+from src.schemas.authors import _MAX_BOOKS_PER_AUTHOR
 
 
 def _payload(
@@ -229,6 +230,32 @@ async def test_create_author_strips_book_title(client: AsyncClient) -> None:
 
 async def test_create_author_empty_book_title(client: AsyncClient) -> None:
     response = await client.post('/authors', json=_payload(books=[{'title': ''}]))
+
+    assert response.status_code == 422
+
+
+async def test_create_author_too_many_books(client: AsyncClient) -> None:
+    books = [{'title': f'book_{i}'} for i in range(_MAX_BOOKS_PER_AUTHOR + 1)]
+
+    response = await client.post('/authors', json=_payload(books=books))
+
+    assert response.status_code == 422
+
+
+async def test_create_author_max_books_allowed(client: AsyncClient) -> None:
+    books = [{'title': f'book_{i}'} for i in range(_MAX_BOOKS_PER_AUTHOR)]
+
+    response = await client.post('/authors', json=_payload(books=books))
+
+    assert response.status_code == 201
+    assert len(response.json()['books']) == _MAX_BOOKS_PER_AUTHOR
+
+
+async def test_update_author_too_many_books(client: AsyncClient) -> None:
+    created = (await client.post('/authors', json=_payload())).json()
+    books = [{'title': f'book_{i}'} for i in range(_MAX_BOOKS_PER_AUTHOR + 1)]
+
+    response = await client.patch(f'/authors/{created["id"]}', json={'books': books})
 
     assert response.status_code == 422
 

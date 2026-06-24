@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
@@ -70,6 +70,11 @@ class BookPayload(BaseModel):
     )
 
 
+_MAX_BOOKS_PER_AUTHOR = 10000
+
+BookList = Annotated[list[BookPayload], Field(max_length=_MAX_BOOKS_PER_AUTHOR)]
+
+
 class BookShortRead(IdentifiedRead):
     title: str
 
@@ -81,7 +86,7 @@ class BookShortRead(IdentifiedRead):
 class AuthorCreate(BaseModel):
     name: PersonName
     bio: LongText | None = None
-    books: list[BookPayload] = []
+    books: BookList = []
 
     model_config = ConfigDict(
         json_schema_extra={'examples': _AUTHOR_CREATE_EXAMPLES},
@@ -91,7 +96,7 @@ class AuthorCreate(BaseModel):
 class AuthorUpdate(BaseModel):
     name: NotNull[PersonName] = None
     bio: LongText | None = None
-    books: list[BookPayload] | None = None
+    books: BookList | None = None
 
     model_config = ConfigDict(
         json_schema_extra={'examples': _AUTHOR_UPDATE_EXAMPLES},

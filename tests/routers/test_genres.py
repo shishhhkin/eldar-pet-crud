@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.genre_moods import genre_moods
 from src.models.moods import MoodModel
+from src.schemas.genres import _MAX_MOODS_PER_GENRE
 
 
 def _payload(name: str = 'фантастика', *, moods: list[dict] | None = None) -> dict:
@@ -226,3 +227,29 @@ async def test_create_genre_duplicate_moods_deduped(client: AsyncClient) -> None
 
     assert response.status_code == 201
     assert [mood['name'] for mood in response.json()['moods']] == ['грусть']
+
+
+async def test_create_genre_too_many_moods(client: AsyncClient) -> None:
+    moods = [{'name': f'mood_{i}'} for i in range(_MAX_MOODS_PER_GENRE + 1)]
+
+    response = await client.post('/genres', json=_payload('роман', moods=moods))
+
+    assert response.status_code == 422
+
+
+async def test_create_genre_max_moods_allowed(client: AsyncClient) -> None:
+    moods = [{'name': f'mood_{i}'} for i in range(_MAX_MOODS_PER_GENRE)]
+
+    response = await client.post('/genres', json=_payload('роман', moods=moods))
+
+    assert response.status_code == 201
+    assert len(response.json()['moods']) == _MAX_MOODS_PER_GENRE
+
+
+async def test_update_genre_too_many_moods(client: AsyncClient) -> None:
+    created = (await client.post('/genres', json=_payload('x', moods=[{'name': 'грусть'}]))).json()
+    moods = [{'name': f'mood_{i}'} for i in range(_MAX_MOODS_PER_GENRE + 1)]
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'moods': moods})
+
+    assert response.status_code == 422

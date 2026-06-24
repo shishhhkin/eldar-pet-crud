@@ -75,7 +75,13 @@ def _dedup_moods(moods: Sequence[MoodPayload]) -> list[MoodPayload]:
     return list(unique.values())
 
 
-MoodList = Annotated[list[MoodPayload], Field(min_length=1), AfterValidator(_dedup_moods)]
+_MAX_MOODS_PER_GENRE = 20
+
+MoodList = Annotated[
+    list[MoodPayload],
+    Field(min_length=1, max_length=_MAX_MOODS_PER_GENRE),
+    AfterValidator(_dedup_moods),
+]
 
 
 class GenreCreate(BaseModel):
