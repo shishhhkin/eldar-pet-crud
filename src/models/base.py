@@ -22,11 +22,10 @@ class Base(DeclarativeBase):
         server_default=sa.func.now(),
         nullable=False,
     )
-    updated_at: Mapped[datetime] = mapped_column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
-        server_default=sa.func.now(),
         onupdate=sa.func.now(),
-        nullable=False,
+        nullable=True,
     )
     is_deleted: Mapped[bool] = mapped_column(
         sa.Boolean,

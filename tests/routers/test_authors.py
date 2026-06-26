@@ -4,6 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.authors import AuthorModel
 from src.models.books import BookModel
 from src.repository import Repo
 from src.schemas.books import _MAX_BOOKS_PER_AUTHOR
@@ -146,6 +147,20 @@ async def test_update_author_hard_deletes_replaced_books(
 
     rows = (await db_session.execute(select(BookModel))).scalars().all()
     assert [book.title for book in rows] == ['Новое']
+
+
+async def test_author_updated_at_null_until_update(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    created = (await client.post('/authors', json=_payload())).json()
+    author_id = UUID(created['id'])
+
+    stmt = select(AuthorModel.updated_at).where(AuthorModel.id == author_id)
+    assert await db_session.scalar(stmt) is None
+
+    await client.patch(f'/authors/{author_id}', json=_payload(name='Новое имя'))
+
+    assert await db_session.scalar(stmt) is not None
 
 
 async def test_update_author_not_found(client: AsyncClient) -> None:
