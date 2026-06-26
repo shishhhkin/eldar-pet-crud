@@ -1,56 +1,46 @@
-from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.mappers.genres import apply_genre_update, to_genre_model
+from src.mappers.genres import apply_genre_update, to_genre_model, to_genre_read
 from src.models.genres import GenreModel
-from src.models.moods import MoodModel
-from src.repository import Repo
-from src.schemas.genres import GenreCreate, GenreUpdate
+from src.repository import GenreRepo
+from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
 from src.services.base import BaseService
 
 
 class GenreService(BaseService[GenreModel]):
+    repo: GenreRepo
+
     def __init__(self, session: AsyncSession) -> None:
-        self.repo = Repo(session, GenreModel)
-        self.mood_repo = Repo(session, MoodModel)
+        super().__init__(session)
+        self.repo = GenreRepo(session)
 
-    async def _get_or_create_moods(self, names: Sequence[str]) -> Sequence[MoodModel]:
-        if not names:
-            return []
-        await self.mood_repo.insert_ignoring_conflicts(
-            [{'name': name} for name in names],
-            index_elements=['name'],
-        )
-        stmt = self.mood_repo.select().where(MoodModel.name.in_(names))
-        return await self.mood_repo.scalars(stmt)
-
-    async def create(self, payload: GenreCreate) -> GenreModel:
-        moods = await self._get_or_create_moods([mood.name for mood in payload.moods])
+    async def create(self, payload: GenreCreate) -> GenreRead:
+        moods = await self.repo.get_or_create_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)
-        self.repo.add(genre)
-        await self.repo.flush()
-        await self.repo.refresh(genre, ['moods'])
-        return genre
+        self.session.add(genre)
+        await self.session.flush()
+        await self.session.refresh(genre, attribute_names=['moods'])
+        return to_genre_read(genre)
 
-    async def get(self, genre_id: UUID) -> GenreModel:
-        return await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
-
-    async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreModel:
+    async def get(self, genre_id: UUID) -> GenreRead:
         genre = await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
-        moods = (
-            await self._get_or_create_moods([mood.name for mood in payload.moods])
-            if payload.moods is not None
-            else None
-        )
-        apply_genre_update(genre, payload, moods)
-        await self.repo.flush()
-        await self.repo.refresh(genre, ['moods'])
-        return genre
+        return to_genre_read(genre)
+
+    async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreRead:
+        genre = await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
+        apply_genre_update(genre, payload)
+        if payload.moods is not None:
+            genre.moods = list(
+                await self.repo.get_or_create_moods([mood.name for mood in payload.moods])
+            )
+        await self.session.flush()
+        await self.session.refresh(genre, attribute_names=['moods'])
+        return to_genre_read(genre)
 
     async def delete(self, genre_id: UUID) -> None:
         genre = await self._get_or_raise(genre_id)
         genre.is_deleted = True
-        await self.repo.flush()
+        await self.session.flush()

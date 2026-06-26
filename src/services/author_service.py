@@ -3,37 +3,39 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.mappers.authors import apply_author_update, to_author_model
+from src.mappers.authors import apply_author_update, to_author_model, to_author_read
 from src.models.authors import AuthorModel
-from src.repository import Repo
-from src.schemas.authors import AuthorCreate, AuthorUpdate
+from src.repository import AuthorRepo
+from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
 from src.services.base import BaseService
 
 
 class AuthorService(BaseService[AuthorModel]):
     def __init__(self, session: AsyncSession) -> None:
-        self.repo = Repo(session, AuthorModel)
+        super().__init__(session)
+        self.repo = AuthorRepo(session)
 
-    async def create(self, payload: AuthorCreate) -> AuthorModel:
+    async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)
-        self.repo.add(author)
-        await self.repo.flush()
-        await self.repo.refresh(author, ['books'])
-        return author
+        self.session.add(author)
+        await self.session.flush()
+        await self.session.refresh(author, attribute_names=['books'])
+        return to_author_read(author)
 
-    async def get(self, author_id: UUID) -> AuthorModel:
-        return await self._get_or_raise(author_id, selectinload(AuthorModel.books))
+    async def get(self, author_id: UUID) -> AuthorRead:
+        author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
+        return to_author_read(author)
 
-    async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorModel:
+    async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorRead:
         author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
         apply_author_update(author, payload)
-        await self.repo.flush()
-        await self.repo.refresh(author, ['books'])
-        return author
+        await self.session.flush()
+        await self.session.refresh(author, attribute_names=['books'])
+        return to_author_read(author)
 
     async def delete(self, author_id: UUID) -> None:
         author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
         author.is_deleted = True
         for book in author.books:
             book.is_deleted = True
-        await self.repo.flush()
+        await self.session.flush()

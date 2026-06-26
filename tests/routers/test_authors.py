@@ -144,8 +144,7 @@ async def test_update_author_hard_deletes_replaced_books(
 
     await client.patch(f'/authors/{created["id"]}', json=_payload(books=[{'title': 'Новое'}]))
 
-    book_repo = Repo(db_session, BookModel)
-    rows = await book_repo.scalars(select(BookModel))
+    rows = (await db_session.execute(select(BookModel))).scalars().all()
     assert [book.title for book in rows] == ['Новое']
 
 
@@ -188,10 +187,10 @@ async def test_delete_author_soft_cascades_books(
 
     await client.delete(f'/authors/{created["id"]}')
 
-    visible = await book_repo.scalars(book_repo.select())
+    visible = (await db_session.execute(book_repo.select())).scalars().all()
     assert visible == []
 
-    rows = await book_repo.scalars(select(BookModel))
+    rows = (await db_session.execute(select(BookModel))).scalars().all()
     assert len(rows) == 2
     assert all(book.is_deleted for book in rows)
 

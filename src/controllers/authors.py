@@ -31,12 +31,12 @@ async def create_author(
     payload: Annotated[AuthorCreate, Body(openapi_examples=AUTHOR_CREATE_EXAMPLES)],
     service: AuthorServiceTxDep,
 ) -> AuthorRead:
-    return await service.create(payload)  # type: ignore[return-value]
+    return await service.create(payload)
 
 
 @router.get('/{author_id}', response_model=AuthorRead, responses=READ_RESPONSES)
 async def read_author(author_id: UUID, service: AuthorServiceDep) -> AuthorRead:
-    return await service.get(author_id)  # type: ignore[return-value]
+    return await service.get(author_id)
 
 
 @router.patch('/{author_id}', response_model=AuthorRead, responses=UPDATE_RESPONSES)
@@ -45,7 +45,7 @@ async def update_author(
     payload: Annotated[AuthorUpdate, Body(openapi_examples=AUTHOR_UPDATE_EXAMPLES)],
     service: AuthorServiceTxDep,
 ) -> AuthorRead:
-    return await service.update(author_id, payload)  # type: ignore[return-value]
+    return await service.update(author_id, payload)
 
 
 @router.delete(

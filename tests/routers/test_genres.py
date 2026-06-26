@@ -220,6 +220,12 @@ async def test_create_genre_empty_mood_name(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_create_genre_empty_moods(client: AsyncClient) -> None:
+    response = await client.post('/genres', json=_payload('роман', moods=[]))
+
+    assert response.status_code == 422
+
+
 async def test_create_genre_duplicate_moods_deduped(client: AsyncClient) -> None:
     response = await client.post(
         '/genres', json=_payload('роман', moods=[{'name': 'грусть'}, {'name': 'грусть'}])

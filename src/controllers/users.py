@@ -31,12 +31,12 @@ async def create_user(
     payload: Annotated[UserCreate, Body(openapi_examples=USER_CREATE_EXAMPLES)],
     service: UserServiceTxDep,
 ) -> UserRead:
-    return await service.create(payload)  # type: ignore[return-value]
+    return await service.create(payload)
 
 
 @router.get('/{user_id}', response_model=UserRead, responses=READ_RESPONSES)
 async def read_user(user_id: UUID, service: UserServiceDep) -> UserRead:
-    return await service.get(user_id)  # type: ignore[return-value]
+    return await service.get(user_id)
 
 
 @router.patch('/{user_id}', response_model=UserRead, responses=UPDATE_RESPONSES)
@@ -45,7 +45,7 @@ async def update_user(
     payload: Annotated[UserUpdate, Body(openapi_examples=USER_UPDATE_EXAMPLES)],
     service: UserServiceTxDep,
 ) -> UserRead:
-    return await service.update(user_id, payload)  # type: ignore[return-value]
+    return await service.update(user_id, payload)
 
 
 @router.delete(
