@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Self
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead
-from src.schemas.fields import LongText, NotNull, PersonName, ShortText
+from src.schemas.books import _BOOK_READ_EXAMPLE, BookList, BookShortRead
+from src.schemas.fields import LongText, NotNull, PersonName
 
 _AUTHOR_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-_BOOK_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
 
-_BOOK_PAYLOAD_EXAMPLE: dict[str, Any] = {'title': 'Война и мир'}
-_BOOK_READ_EXAMPLE: dict[str, Any] = {'id': _BOOK_ID_EXAMPLE, 'title': 'Война и мир'}
 AUTHOR_CREATE_EXAMPLES: dict[str, Any] = {
     'with_books': {
         'summary': 'С книгами',
@@ -60,27 +58,6 @@ _AUTHOR_READ_EXAMPLE: dict[str, Any] = {
     'bio': 'Русский писатель, классик мировой литературы.',
     'books': [_BOOK_READ_EXAMPLE],
 }
-
-
-class BookPayload(BaseModel):
-    title: ShortText
-
-    model_config = ConfigDict(
-        json_schema_extra={'examples': [_BOOK_PAYLOAD_EXAMPLE]},
-    )
-
-
-_MAX_BOOKS_PER_AUTHOR = 10000
-
-BookList = Annotated[list[BookPayload], Field(max_length=_MAX_BOOKS_PER_AUTHOR)]
-
-
-class BookShortRead(IdentifiedRead):
-    title: str
-
-    model_config = ConfigDict(
-        json_schema_extra={'examples': [_BOOK_READ_EXAMPLE]},
-    )
 
 
 class AuthorCreate(BaseModel):

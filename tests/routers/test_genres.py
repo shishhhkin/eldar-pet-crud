@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.genre_moods import genre_moods
 from src.models.moods import MoodModel
-from src.schemas.genres import _MAX_MOODS_PER_GENRE
+from src.schemas.moods import _MAX_MOODS_PER_GENRE
 
 
 def _payload(name: str = 'фантастика', *, moods: list[dict] | None = None) -> dict:

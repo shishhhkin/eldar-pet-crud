@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.books import BookModel
 from src.repository import Repo
-from src.schemas.authors import _MAX_BOOKS_PER_AUTHOR
+from src.schemas.books import _MAX_BOOKS_PER_AUTHOR
 
 
 def _payload(
