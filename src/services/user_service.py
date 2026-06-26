@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.mappers.users import apply_user_update, to_user_model, to_user_read
@@ -11,9 +10,7 @@ from src.services.base import BaseService
 
 
 class UserService(BaseService[UserModel]):
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(session)
-        self.repo = UserRepo(session)
+    repo: UserRepo
 
     async def create(self, payload: UserCreate) -> UserRead:
         user = to_user_model(payload)

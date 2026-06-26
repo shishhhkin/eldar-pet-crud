@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.mappers.genres import apply_genre_update, to_genre_model, to_genre_read
@@ -12,10 +11,6 @@ from src.services.base import BaseService
 
 class GenreService(BaseService[GenreModel]):
     repo: GenreRepo
-
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(session)
-        self.repo = GenreRepo(session)
 
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.get_or_create_moods([mood.name for mood in payload.moods])

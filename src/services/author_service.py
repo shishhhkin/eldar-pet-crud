@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.mappers.authors import apply_author_update, to_author_model, to_author_read
@@ -11,9 +10,7 @@ from src.services.base import BaseService
 
 
 class AuthorService(BaseService[AuthorModel]):
-    def __init__(self, session: AsyncSession) -> None:
-        super().__init__(session)
-        self.repo = AuthorRepo(session)
+    repo: AuthorRepo
 
     async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)

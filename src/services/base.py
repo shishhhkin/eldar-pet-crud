@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.base import ExecutableOption
 
 from src.exceptions import ObjectNotFoundError
@@ -11,8 +10,9 @@ from src.repository import Repo
 class BaseService[ModelT: Base]:
     repo: Repo[ModelT]
 
-    def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+    def __init__(self, repo: Repo[ModelT]) -> None:
+        self.repo = repo
+        self.session = repo.session
 
     async def _get_or_raise(self, obj_id: UUID, *options: ExecutableOption) -> ModelT:
         obj = await self.repo.get(obj_id, *options)
