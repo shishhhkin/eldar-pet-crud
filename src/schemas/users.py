@@ -130,7 +130,7 @@ class UserUpdate(BaseModel):
         if not self.model_fields_set:
             raise PydanticCustomError(
                 'at_least_one_field',
-                'At least one field must be provided',
+                'At least one of "username", "email" or "profile" must be provided',
             )
         return self
 

@@ -114,6 +114,17 @@ async def test_update_user_rejects_null_email(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_update_user_rejects_empty_body(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={})
+
+    assert response.status_code == 422
+    error = response.json()['detail'][0]
+    assert error['type'] == 'at_least_one_field'
+    assert error['msg'] == 'At least one of "username", "email" or "profile" must be provided'
+
+
 async def test_update_user_not_found(client: AsyncClient) -> None:
     response = await client.patch(f'/users/{uuid4()}', json=_payload())
 

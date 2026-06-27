@@ -84,7 +84,7 @@ class AuthorUpdate(BaseModel):
         if not self.model_fields_set:
             raise PydanticCustomError(
                 'at_least_one_field',
-                'At least one field must be provided',
+                'At least one of "name", "bio" or "books" must be provided',
             )
         return self
 

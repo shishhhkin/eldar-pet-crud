@@ -113,6 +113,17 @@ async def test_update_author_rejects_null_name(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_update_author_rejects_empty_body(client: AsyncClient) -> None:
+    created = (await client.post('/authors', json=_payload())).json()
+
+    response = await client.patch(f'/authors/{created["id"]}', json={})
+
+    assert response.status_code == 422
+    error = response.json()['detail'][0]
+    assert error['type'] == 'at_least_one_field'
+    assert error['msg'] == 'At least one of "name", "bio" or "books" must be provided'
+
+
 async def test_update_author_replaces_books(client: AsyncClient) -> None:
     created = (await client.post('/authors', json=_payload(books=[{'title': 'Старое'}]))).json()
 
