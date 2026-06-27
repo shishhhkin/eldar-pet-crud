@@ -12,7 +12,6 @@ class BaseService[ModelT: Base]:
 
     def __init__(self, repo: Repo[ModelT]) -> None:
         self.repo = repo
-        self.session = repo.session
 
     async def _get_or_raise(self, obj_id: UUID, *options: ExecutableOption) -> ModelT:
         obj = await self.repo.get(obj_id, *options)

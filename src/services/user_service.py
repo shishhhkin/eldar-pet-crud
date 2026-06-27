@@ -14,9 +14,7 @@ class UserService(BaseService[UserModel]):
 
     async def create(self, payload: UserCreate) -> UserRead:
         user = to_user_model(payload)
-        self.session.add(user)
-        await self.session.flush()
-        await self.session.refresh(user, attribute_names=['profile'])
+        await self.repo.save(user, 'profile')
         return to_user_read(user)
 
     async def get(self, user_id: UUID) -> UserRead:
@@ -26,7 +24,7 @@ class UserService(BaseService[UserModel]):
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:
         user = await self._get_or_raise(user_id, selectinload(UserModel.profile))
         apply_user_update(user, payload)
-        await self.session.flush()
+        await self.repo.save(user)
         return to_user_read(user)
 
     async def delete(self, user_id: UUID) -> None:
@@ -34,4 +32,4 @@ class UserService(BaseService[UserModel]):
         user.is_deleted = True
         if user.profile is not None:
             user.profile.is_deleted = True
-        await self.session.flush()
+        await self.repo.save(user)

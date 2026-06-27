@@ -27,3 +27,10 @@ class Repo[ModelT: Base]:
     async def get(self, obj_id: UUID, *options: ExecutableOption) -> ModelT | None:
         stmt = self.select().where(self.model.id == obj_id).options(*options)
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def save(self, obj: ModelT, *refresh: str) -> ModelT:
+        self.session.add(obj)
+        await self.session.flush()
+        if refresh:
+            await self.session.refresh(obj, attribute_names=list(refresh))
+        return obj

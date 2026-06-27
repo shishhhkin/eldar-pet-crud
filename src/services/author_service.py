@@ -14,9 +14,7 @@ class AuthorService(BaseService[AuthorModel]):
 
     async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)
-        self.session.add(author)
-        await self.session.flush()
-        await self.session.refresh(author, attribute_names=['books'])
+        await self.repo.save(author, 'books')
         return to_author_read(author)
 
     async def get(self, author_id: UUID) -> AuthorRead:
@@ -26,8 +24,7 @@ class AuthorService(BaseService[AuthorModel]):
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorRead:
         author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
         apply_author_update(author, payload)
-        await self.session.flush()
-        await self.session.refresh(author, attribute_names=['books'])
+        await self.repo.save(author, 'books')
         return to_author_read(author)
 
     async def delete(self, author_id: UUID) -> None:
@@ -35,4 +32,4 @@ class AuthorService(BaseService[AuthorModel]):
         author.is_deleted = True
         for book in author.books:
             book.is_deleted = True
-        await self.session.flush()
+        await self.repo.save(author)

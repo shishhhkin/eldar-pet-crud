@@ -15,9 +15,7 @@ class GenreService(BaseService[GenreModel]):
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.ensure_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)
-        self.session.add(genre)
-        await self.session.flush()
-        await self.session.refresh(genre, attribute_names=['moods'])
+        await self.repo.save(genre, 'moods')
         return to_genre_read(genre)
 
     async def get(self, genre_id: UUID) -> GenreRead:
@@ -31,11 +29,10 @@ class GenreService(BaseService[GenreModel]):
             genre.moods = list(
                 await self.repo.ensure_moods([mood.name for mood in payload.moods])
             )
-        await self.session.flush()
-        await self.session.refresh(genre, attribute_names=['moods'])
+        await self.repo.save(genre, 'moods')
         return to_genre_read(genre)
 
     async def delete(self, genre_id: UUID) -> None:
         genre = await self._get_or_raise(genre_id)
         genre.is_deleted = True
-        await self.session.flush()
+        await self.repo.save(genre)
