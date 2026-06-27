@@ -13,7 +13,7 @@ class GenreService(BaseService[GenreModel]):
     repo: GenreRepo
 
     async def create(self, payload: GenreCreate) -> GenreRead:
-        moods = await self.repo.get_or_create_moods([mood.name for mood in payload.moods])
+        moods = await self.repo.ensure_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)
         self.session.add(genre)
         await self.session.flush()
@@ -29,7 +29,7 @@ class GenreService(BaseService[GenreModel]):
         apply_genre_update(genre, payload)
         if payload.moods is not None:
             genre.moods = list(
-                await self.repo.get_or_create_moods([mood.name for mood in payload.moods])
+                await self.repo.ensure_moods([mood.name for mood in payload.moods])
             )
         await self.session.flush()
         await self.session.refresh(genre, attribute_names=['moods'])
