@@ -115,6 +115,17 @@ async def test_update_genre_rejects_empty_moods(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_update_genre_rejects_empty_body(client: AsyncClient) -> None:
+    created = (await client.post('/genres', json=_payload('x', moods=[{'name': 'грусть'}]))).json()
+
+    response = await client.patch(f'/genres/{created["id"]}', json={})
+
+    assert response.status_code == 422
+    error = response.json()['detail'][0]
+    assert error['type'] == 'at_least_one_field'
+    assert error['msg'] == 'At least one of "name" or "moods" must be provided'
+
+
 async def test_update_genre_not_found(client: AsyncClient) -> None:
     response = await client.patch(f'/genres/{uuid4()}', json=_payload('x'))
 

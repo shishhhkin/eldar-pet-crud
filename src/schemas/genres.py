@@ -67,7 +67,7 @@ class GenreUpdate(BaseModel):
 
     @model_validator(mode='after')
     def _require_any_field(self) -> Self:
-        if self.name is None and self.moods is None:
+        if not self.model_fields_set:
             raise PydanticCustomError(
                 'at_least_one_field',
                 'At least one of "name" or "moods" must be provided',
