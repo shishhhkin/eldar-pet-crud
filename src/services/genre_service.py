@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import selectinload
 
+from src.exceptions import GenreNotFoundError
 from src.mappers.genres import apply_genre_update, to_genre_model, to_genre_read
 from src.models.genres import GenreModel
 from src.repository import GenreRepo
@@ -10,6 +11,8 @@ from src.services.base import BaseService
 
 
 class GenreService(BaseService[GenreModel, GenreRepo]):
+    not_found_error = GenreNotFoundError
+
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.ensure_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)

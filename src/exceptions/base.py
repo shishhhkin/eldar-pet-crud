@@ -27,5 +27,20 @@ class ConflictError(AppError):
 
 
 class ObjectNotFoundError(NotFoundError):
-    def __init__(self, model: type, object_id: UUID) -> None:
-        super().__init__(f'{model.__name__} {object_id} not found')
+    entity = 'Object'
+    message_template = '{entity} {object_id} not found'
+
+    def __init__(self, object_id: UUID) -> None:
+        super().__init__(self.message_template.format(entity=self.entity, object_id=object_id))
+
+
+class AuthorNotFoundError(ObjectNotFoundError):
+    entity = 'Author'
+
+
+class GenreNotFoundError(ObjectNotFoundError):
+    entity = 'Genre'
+
+
+class UserNotFoundError(ObjectNotFoundError):
+    entity = 'User'

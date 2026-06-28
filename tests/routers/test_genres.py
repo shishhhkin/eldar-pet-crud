@@ -53,6 +53,7 @@ async def test_read_genre_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
     body = response.json()
     assert body['code'] == 'not_found'
+    assert body['detail'].startswith('Genre ')
     assert 'not found' in body['detail']
     assert body['request_id']
 

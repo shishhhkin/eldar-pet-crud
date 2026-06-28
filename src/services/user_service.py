@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import selectinload
 
+from src.exceptions import UserNotFoundError
 from src.mappers.users import apply_user_update, to_user_model, to_user_read
 from src.models.users import UserModel
 from src.repository import UserRepo
@@ -10,6 +11,8 @@ from src.services.base import BaseService
 
 
 class UserService(BaseService[UserModel, UserRepo]):
+    not_found_error = UserNotFoundError
+
     async def create(self, payload: UserCreate) -> UserRead:
         user = to_user_model(payload)
         await self.repo.save(user, 'profile')
