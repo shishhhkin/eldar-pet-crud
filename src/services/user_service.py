@@ -9,9 +9,7 @@ from src.schemas.users import UserCreate, UserRead, UserUpdate
 from src.services.base import BaseService
 
 
-class UserService(BaseService[UserModel]):
-    repo: UserRepo
-
+class UserService(BaseService[UserModel, UserRepo]):
     async def create(self, payload: UserCreate) -> UserRead:
         user = to_user_model(payload)
         await self.repo.save(user, 'profile')

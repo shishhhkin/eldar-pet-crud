@@ -9,9 +9,7 @@ from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
 from src.services.base import BaseService
 
 
-class GenreService(BaseService[GenreModel]):
-    repo: GenreRepo
-
+class GenreService(BaseService[GenreModel, GenreRepo]):
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.ensure_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)

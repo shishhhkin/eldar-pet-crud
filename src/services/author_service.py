@@ -9,9 +9,7 @@ from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
 from src.services.base import BaseService
 
 
-class AuthorService(BaseService[AuthorModel]):
-    repo: AuthorRepo
-
+class AuthorService(BaseService[AuthorModel, AuthorRepo]):
     async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)
         await self.repo.save(author, 'books')
