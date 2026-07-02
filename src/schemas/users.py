@@ -10,24 +10,15 @@ from pydantic import (
     Field,
     HttpUrl,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 from pydantic_core import PydanticCustomError
 
-from src.schemas.base import IdentifiedRead
-from src.schemas.fields import NotNull
+from src.schemas.base import IdentifiedRead, example_values
+from src.schemas.normalizers import forbid_null, normalize_text
 
-SocialHandle = Annotated[str, StringConstraints(min_length=1, max_length=255)]
-SocialKey = Annotated[str, StringConstraints(min_length=1, max_length=32)]
-Username = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=3,
-        max_length=64,
-        pattern=r'^[a-zA-Z0-9_]+$',
-    ),
-]
+_USERNAME_PATTERN = r'^[a-zA-Z0-9_]+$'
 
 _USER_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
 _PROFILE_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
@@ -71,12 +62,6 @@ USER_UPDATE_EXAMPLES: dict[str, Any] = {
     },
 }
 
-_USER_CREATE_EXAMPLES: list[Any] = [
-    example['value'] for example in USER_CREATE_EXAMPLES.values()
-]
-_USER_UPDATE_EXAMPLES: list[Any] = [
-    example['value'] for example in USER_UPDATE_EXAMPLES.values()
-]
 _USER_READ_EXAMPLE: dict[str, Any] = {
     'id': _USER_ID_EXAMPLE,
     'username': 'john_doe',
@@ -88,18 +73,23 @@ _USER_READ_EXAMPLE: dict[str, Any] = {
 
 class UserProfilePayload(BaseModel):
     avatar_url: HttpUrl | None = None
-    bio: (
-        Annotated[
-            str,
-            StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+    bio: str | None = Field(default=None, min_length=1, max_length=2000)
+    socials: (
+        dict[
+            Annotated[str, StringConstraints(min_length=1, max_length=32)],
+            Annotated[str, StringConstraints(min_length=1, max_length=255)],
         ]
         | None
-    ) = None
-    socials: dict[SocialKey, SocialHandle] | None = Field(default=None, max_length=32)
+    ) = Field(default=None, max_length=32)
 
     model_config = ConfigDict(
         json_schema_extra={'examples': [_PROFILE_PAYLOAD_EXAMPLE]},
     )
+
+    @field_validator('bio', mode='before')
+    @classmethod
+    def _normalize_bio(cls, value: object) -> object:
+        return normalize_text(value)
 
 
 class UserProfileRead(IdentifiedRead, UserProfilePayload):
@@ -107,23 +97,40 @@ class UserProfileRead(IdentifiedRead, UserProfilePayload):
 
 
 class UserCreate(BaseModel):
-    username: Username
+    username: str = Field(min_length=3, max_length=64, pattern=_USERNAME_PATTERN)
     email: EmailStr
     profile: UserProfilePayload
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': _USER_CREATE_EXAMPLES},
+        json_schema_extra={'examples': example_values(USER_CREATE_EXAMPLES)},
     )
+
+    @field_validator('username', mode='before')
+    @classmethod
+    def _normalize_username(cls, value: object) -> object:
+        return normalize_text(value)
 
 
 class UserUpdate(BaseModel):
-    username: NotNull[Username] = None
-    email: NotNull[EmailStr] = None
+    username: str | None = Field(
+        default=None, min_length=3, max_length=64, pattern=_USERNAME_PATTERN
+    )
+    email: EmailStr | None = Field(default=None)
     profile: UserProfilePayload | None = None
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': _USER_UPDATE_EXAMPLES},
+        json_schema_extra={'examples': example_values(USER_UPDATE_EXAMPLES)},
     )
+
+    @field_validator('username', mode='before')
+    @classmethod
+    def _normalize_username(cls, value: object) -> object:
+        return normalize_text(forbid_null(value))
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def _forbid_null_email(cls, value: object) -> object:
+        return forbid_null(value)
 
     @model_validator(mode='after')
     def _require_any_field(self) -> Self:
