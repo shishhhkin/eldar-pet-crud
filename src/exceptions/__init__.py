@@ -1,21 +1,17 @@
-from src.exceptions.base import (
-    AppError,
+from src.exceptions.base import AppError
+from src.exceptions.not_found import (
     AuthorNotFoundError,
-    ConflictError,
     GenreNotFoundError,
     NotFoundError,
     ObjectNotFoundError,
     UserNotFoundError,
-    ValidationAppError,
 )
 
 __all__ = [
     'AppError',
     'AuthorNotFoundError',
-    'ConflictError',
     'GenreNotFoundError',
     'NotFoundError',
     'ObjectNotFoundError',
     'UserNotFoundError',
-    'ValidationAppError',
 ]
