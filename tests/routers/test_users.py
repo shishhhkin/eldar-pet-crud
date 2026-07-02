@@ -196,6 +196,22 @@ async def test_create_user_duplicate_username(client: AsyncClient) -> None:
     )
 
     assert response.status_code == 409
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'User already exists'
+    assert body['request_id']
+
+
+async def test_create_user_duplicate_email(client: AsyncClient) -> None:
+    first = await client.post('/users', json=_payload())
+    assert first.status_code == 201
+
+    response = await client.post('/users', json=_payload(username='bob', email='alice@example.com'))
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'User already exists'
 
 
 async def test_create_user_username_with_dash_rejected(client: AsyncClient) -> None:

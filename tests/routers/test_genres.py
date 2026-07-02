@@ -188,6 +188,10 @@ async def test_create_genre_duplicate_name(client: AsyncClient) -> None:
     response = await client.post('/genres', json=_payload('uniq'))
 
     assert response.status_code == 409
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'Genre already exists'
+    assert body['request_id']
 
 
 async def test_recreate_genre_with_deleted_name(client: AsyncClient) -> None:

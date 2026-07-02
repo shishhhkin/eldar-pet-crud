@@ -1,11 +1,15 @@
 from uuid import UUID
 
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.sql.base import ExecutableOption
 
+from src.exceptions import AlreadyExistsError
 from src.models.base import Base
+
+UNIQUE_VIOLATION = '23505'
 
 
 def active_only() -> ExecutableOption:
@@ -14,6 +18,10 @@ def active_only() -> ExecutableOption:
         lambda cls: cls.is_deleted.is_(False),
         include_aliases=True,
     )
+
+
+def _is_unique_violation(exc: IntegrityError) -> bool:
+    return getattr(exc.orig, 'sqlstate', None) == UNIQUE_VIOLATION
 
 
 class Repo[ModelT: Base]:
@@ -30,7 +38,12 @@ class Repo[ModelT: Base]:
 
     async def save(self, obj: ModelT, *refresh: str) -> ModelT:
         self.session.add(obj)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                raise AlreadyExistsError(self.model.__name__.removesuffix('Model')) from exc
+            raise
         if refresh:
             await self.session.refresh(obj, attribute_names=list(refresh))
         return obj

@@ -1,4 +1,5 @@
 from src.exceptions.base import AppError
+from src.exceptions.conflict import AlreadyExistsError, ConflictError
 from src.exceptions.not_found import (
     AuthorNotFoundError,
     GenreNotFoundError,
@@ -8,8 +9,10 @@ from src.exceptions.not_found import (
 )
 
 __all__ = [
+    'AlreadyExistsError',
     'AppError',
     'AuthorNotFoundError',
+    'ConflictError',
     'GenreNotFoundError',
     'NotFoundError',
     'ObjectNotFoundError',
