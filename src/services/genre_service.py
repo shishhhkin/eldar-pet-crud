@@ -14,7 +14,7 @@ class GenreService(BaseService[GenreModel, GenreRepo]):
     not_found_error = GenreNotFoundError
 
     async def create(self, payload: GenreCreate) -> GenreRead:
-        moods = await self.repo.ensure_moods([mood.name for mood in payload.moods])
+        moods = await self.repo.upsert_moods([mood.name for mood in payload.moods])
         genre = to_genre_model(payload, moods)
         await self.repo.save(genre, 'moods')
         return to_genre_read(genre)
@@ -28,7 +28,7 @@ class GenreService(BaseService[GenreModel, GenreRepo]):
         apply_genre_update(genre, payload)
         if payload.moods is not None:
             genre.moods = list(
-                await self.repo.ensure_moods([mood.name for mood in payload.moods])
+                await self.repo.upsert_moods([mood.name for mood in payload.moods])
             )
         await self.repo.save(genre, 'moods')
         return to_genre_read(genre)

@@ -13,7 +13,7 @@ class GenreRepo(Repo[GenreModel]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, GenreModel)
 
-    async def ensure_moods(self, names: Sequence[str]) -> Sequence[MoodModel]:
+    async def upsert_moods(self, names: Sequence[str]) -> Sequence[MoodModel]:
         insert_stmt = (
             pg_insert(MoodModel)
             .values([{'name': name} for name in names])
