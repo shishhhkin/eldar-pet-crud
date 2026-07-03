@@ -1,6 +1,8 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from src.exceptions import AuthorNotFoundError
 from src.mappers.authors import apply_author_update, to_author_model, to_author_read
@@ -9,9 +11,16 @@ from src.repository import AuthorRepo
 from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
 from src.services.base import BaseService
 
+logger = logging.getLogger(__name__)
 
-class AuthorService(BaseService[AuthorModel, AuthorRepo]):
-    not_found_error = AuthorNotFoundError
+
+class AuthorService(BaseService[AuthorRepo]):
+    async def _get_or_raise(self, author_id: UUID, *options: ExecutableOption) -> AuthorModel:
+        author = await self.repo.get(author_id, *options)
+        if author is None:
+            logger.info('author not found: %s', author_id)
+            raise AuthorNotFoundError(author_id)
+        return author
 
     async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)

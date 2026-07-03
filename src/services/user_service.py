@@ -1,6 +1,8 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from src.exceptions import UserNotFoundError
 from src.mappers.users import apply_user_update, to_user_model, to_user_read
@@ -9,9 +11,16 @@ from src.repository import UserRepo
 from src.schemas.users import UserCreate, UserRead, UserUpdate
 from src.services.base import BaseService
 
+logger = logging.getLogger(__name__)
 
-class UserService(BaseService[UserModel, UserRepo]):
-    not_found_error = UserNotFoundError
+
+class UserService(BaseService[UserRepo]):
+    async def _get_or_raise(self, user_id: UUID, *options: ExecutableOption) -> UserModel:
+        user = await self.repo.get(user_id, *options)
+        if user is None:
+            logger.info('user not found: %s', user_id)
+            raise UserNotFoundError(user_id)
+        return user
 
     async def create(self, payload: UserCreate) -> UserRead:
         user = to_user_model(payload)

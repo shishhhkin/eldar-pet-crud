@@ -1,6 +1,8 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from src.exceptions import GenreNotFoundError
 from src.mappers.genres import apply_genre_update, to_genre_model, to_genre_read
@@ -9,9 +11,16 @@ from src.repository import GenreRepo
 from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
 from src.services.base import BaseService
 
+logger = logging.getLogger(__name__)
 
-class GenreService(BaseService[GenreModel, GenreRepo]):
-    not_found_error = GenreNotFoundError
+
+class GenreService(BaseService[GenreRepo]):
+    async def _get_or_raise(self, genre_id: UUID, *options: ExecutableOption) -> GenreModel:
+        genre = await self.repo.get(genre_id, *options)
+        if genre is None:
+            logger.info('genre not found: %s', genre_id)
+            raise GenreNotFoundError(genre_id)
+        return genre
 
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.upsert_moods([mood.name for mood in payload.moods])

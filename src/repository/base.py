@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy import Select, select
@@ -8,6 +9,8 @@ from sqlalchemy.sql.base import ExecutableOption
 
 from src.exceptions import AlreadyExistsError
 from src.models.base import Base
+
+logger = logging.getLogger(__name__)
 
 UNIQUE_VIOLATION = '23505'
 
@@ -42,7 +45,9 @@ class Repo[ModelT: Base]:
             await self.session.flush()
         except IntegrityError as exc:
             if _is_unique_violation(exc):
-                raise AlreadyExistsError(self.model.__name__.removesuffix('Model')) from exc
+                name = self.model.__name__.removesuffix('Model')
+                logger.info('already exists: %s', name)
+                raise AlreadyExistsError(name) from exc
             raise
         if refresh:
             await self.session.refresh(obj, attribute_names=list(refresh))
