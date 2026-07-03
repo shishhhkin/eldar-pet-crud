@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.base import IdentifiedRead
 from src.schemas.examples import MOOD_PAYLOAD_EXAMPLE, MOOD_READ_EXAMPLE
-from src.schemas.normalizers import dedup_key
+from src.schemas.normalizers import normalize_key
 
 MAX_MOODS_PER_GENRE = 20
 
@@ -21,7 +21,7 @@ class MoodPayload(BaseModel):
     @field_validator('name', mode='before')
     @classmethod
     def _normalize_name(cls, value: object) -> object:
-        return dedup_key(value)
+        return normalize_key(value)
 
 
 class MoodShortRead(IdentifiedRead):
@@ -33,6 +33,7 @@ class MoodShortRead(IdentifiedRead):
 
 
 def dedup_moods(moods: Sequence[MoodPayload]) -> list[MoodPayload]:
+    """Удаляет дубликаты moods из последовательности"""
     unique: dict[str, MoodPayload] = {}
     for mood in moods:
         unique.setdefault(mood.name, mood)

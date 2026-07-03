@@ -17,7 +17,7 @@ from src.schemas.moods import (
     MoodShortRead,
     dedup_moods,
 )
-from src.schemas.normalizers import dedup_key, forbid_null
+from src.schemas.normalizers import forbid_null, normalize_key
 
 
 class GenreCreate(BaseModel):
@@ -31,7 +31,7 @@ class GenreCreate(BaseModel):
     @field_validator('name', mode='before')
     @classmethod
     def _normalize_name(cls, value: object) -> object:
-        return dedup_key(value)
+        return normalize_key(value)
 
     @field_validator('moods', mode='after')
     @classmethod
@@ -52,7 +52,7 @@ class GenreUpdate(BaseModel):
     @field_validator('name', mode='before')
     @classmethod
     def _normalize_name(cls, value: object) -> object:
-        return dedup_key(forbid_null(value))
+        return normalize_key(forbid_null(value))
 
     @field_validator('moods', mode='after')
     @classmethod
