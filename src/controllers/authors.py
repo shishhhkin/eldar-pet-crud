@@ -4,19 +4,14 @@ from uuid import UUID
 from fastapi import APIRouter, Body, status
 
 from src.dependencies import AuthorServiceDep, AuthorServiceTxDep
-from src.schemas.authors import (
-    AUTHOR_CREATE_EXAMPLES,
-    AUTHOR_UPDATE_EXAMPLES,
-    AuthorCreate,
-    AuthorRead,
-    AuthorUpdate,
-)
+from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
 from src.schemas.errors import (
     CREATE_RESPONSES,
     DELETE_RESPONSES,
     READ_RESPONSES,
     UPDATE_RESPONSES,
 )
+from src.schemas.examples import AUTHOR_CREATE_EXAMPLES, AUTHOR_UPDATE_EXAMPLES
 
 router = APIRouter(prefix='/authors', tags=['authors'])
 

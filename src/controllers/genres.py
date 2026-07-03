@@ -10,13 +10,8 @@ from src.schemas.errors import (
     READ_RESPONSES,
     UPDATE_RESPONSES,
 )
-from src.schemas.genres import (
-    GENRE_CREATE_EXAMPLES,
-    GENRE_UPDATE_EXAMPLES,
-    GenreCreate,
-    GenreRead,
-    GenreUpdate,
-)
+from src.schemas.examples import GENRE_CREATE_EXAMPLES, GENRE_UPDATE_EXAMPLES
+from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
 
 router = APIRouter(prefix='/genres', tags=['genres'])
 

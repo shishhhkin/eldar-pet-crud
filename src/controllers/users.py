@@ -10,13 +10,8 @@ from src.schemas.errors import (
     READ_RESPONSES,
     UPDATE_RESPONSES,
 )
-from src.schemas.users import (
-    USER_CREATE_EXAMPLES,
-    USER_UPDATE_EXAMPLES,
-    UserCreate,
-    UserRead,
-    UserUpdate,
-)
+from src.schemas.examples import USER_CREATE_EXAMPLES, USER_UPDATE_EXAMPLES
+from src.schemas.users import UserCreate, UserRead, UserUpdate
 
 router = APIRouter(prefix='/users', tags=['users'])
 

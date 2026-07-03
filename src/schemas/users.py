@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Self
+from typing import Annotated, Self
 
 from pydantic import (
     BaseModel,
@@ -16,59 +16,15 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead, example_values
+from src.schemas.examples import (
+    PROFILE_PAYLOAD_EXAMPLE,
+    USER_CREATE_EXAMPLES,
+    USER_READ_EXAMPLE,
+    USER_UPDATE_EXAMPLES,
+)
 from src.schemas.normalizers import forbid_null, normalize_text
 
 _USERNAME_PATTERN = r'^[a-zA-Z0-9_]+$'
-
-_USER_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-_PROFILE_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-
-_PROFILE_PAYLOAD_EXAMPLE: dict[str, Any] = {
-    'avatar_url': 'https://example.com/avatars/john.png',
-    'bio': 'Книжный энтузиаст и коллекционер фантастики',
-    'socials': {'telegram': '@john_doe', 'github': 'johndoe'},
-}
-_PROFILE_READ_EXAMPLE: dict[str, Any] = {'id': _PROFILE_ID_EXAMPLE, **_PROFILE_PAYLOAD_EXAMPLE}
-USER_CREATE_EXAMPLES: dict[str, Any] = {
-    'full': {
-        'summary': 'Полный профиль',
-        'value': {
-            'username': 'john_doe',
-            'email': 'john@example.com',
-            'profile': _PROFILE_PAYLOAD_EXAMPLE,
-        },
-    },
-    'minimal': {
-        'summary': 'Минимальный профиль',
-        'value': {
-            'username': 'jane_doe',
-            'email': 'jane@example.com',
-            'profile': {'bio': 'Любитель научпопа'},
-        },
-    },
-}
-USER_UPDATE_EXAMPLES: dict[str, Any] = {
-    'email_only': {
-        'summary': 'Только email',
-        'value': {'email': 'john.doe@example.com'},
-    },
-    'username_only': {
-        'summary': 'Только username',
-        'value': {'username': 'john_doe_2'},
-    },
-    'profile_only': {
-        'summary': 'Только профиль',
-        'value': {'profile': _PROFILE_PAYLOAD_EXAMPLE},
-    },
-}
-
-_USER_READ_EXAMPLE: dict[str, Any] = {
-    'id': _USER_ID_EXAMPLE,
-    'username': 'john_doe',
-    'email': 'john@example.com',
-    'created_at': '2026-01-15T10:30:00Z',
-    'profile': _PROFILE_READ_EXAMPLE,
-}
 
 
 class UserProfilePayload(BaseModel):
@@ -83,7 +39,7 @@ class UserProfilePayload(BaseModel):
     ) = Field(default=None, max_length=32)
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': [_PROFILE_PAYLOAD_EXAMPLE]},
+        json_schema_extra={'examples': [PROFILE_PAYLOAD_EXAMPLE]},
     )
 
     @field_validator('bio', mode='before')
@@ -149,5 +105,5 @@ class UserRead(IdentifiedRead):
     profile: UserProfileRead | None
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': [_USER_READ_EXAMPLE]},
+        json_schema_extra={'examples': [USER_READ_EXAMPLE]},
     )

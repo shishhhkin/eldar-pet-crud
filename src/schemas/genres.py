@@ -1,55 +1,23 @@
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead, example_values
+from src.schemas.examples import (
+    GENRE_CREATE_EXAMPLES,
+    GENRE_READ_EXAMPLE,
+    GENRE_UPDATE_EXAMPLES,
+)
 from src.schemas.moods import (
     MAX_MOODS_PER_GENRE,
-    MOOD_READ_EXAMPLE,
     MoodPayload,
     MoodShortRead,
     dedup_moods,
 )
 from src.schemas.normalizers import dedup_key, forbid_null
-
-_GENRE_ID_EXAMPLE = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-
-GENRE_CREATE_EXAMPLES: dict[str, Any] = {
-    'multiple_moods': {
-        'summary': 'С несколькими настроениями',
-        'value': {
-            'name': 'Фэнтези',
-            'moods': [{'name': 'Меланхоличное'}, {'name': 'Атмосферное'}],
-        },
-    },
-    'single_mood': {
-        'summary': 'С одним настроением',
-        'value': {'name': 'Детектив', 'moods': [{'name': 'Напряжённое'}]},
-    },
-}
-GENRE_UPDATE_EXAMPLES: dict[str, Any] = {
-    'both': {
-        'summary': 'Имя и настроения',
-        'value': {'name': 'Фэнтези', 'moods': [{'name': 'Меланхоличное'}]},
-    },
-    'name_only': {
-        'summary': 'Только имя',
-        'value': {'name': 'Фэнтези'},
-    },
-    'moods_only': {
-        'summary': 'Только настроения',
-        'value': {'moods': [{'name': 'Атмосферное'}]},
-    },
-}
-
-_GENRE_READ_EXAMPLE: dict[str, Any] = {
-    'id': _GENRE_ID_EXAMPLE,
-    'name': 'Фэнтези',
-    'moods': [MOOD_READ_EXAMPLE],
-}
 
 
 class GenreCreate(BaseModel):
@@ -106,5 +74,5 @@ class GenreRead(IdentifiedRead):
     moods: list[MoodShortRead]
 
     model_config = ConfigDict(
-        json_schema_extra={'examples': [_GENRE_READ_EXAMPLE]},
+        json_schema_extra={'examples': [GENRE_READ_EXAMPLE]},
     )

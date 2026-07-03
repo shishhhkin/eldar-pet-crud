@@ -27,9 +27,7 @@ class GenreService(BaseService[GenreModel, GenreRepo]):
         genre = await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
         apply_genre_update(genre, payload)
         if payload.moods is not None:
-            genre.moods = list(
-                await self.repo.upsert_moods([mood.name for mood in payload.moods])
-            )
+            genre.moods = list(await self.repo.upsert_moods([mood.name for mood in payload.moods]))
         await self.repo.save(genre, 'moods')
         return to_genre_read(genre)
 
