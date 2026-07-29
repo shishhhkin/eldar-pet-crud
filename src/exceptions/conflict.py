@@ -10,6 +10,16 @@ class ConflictError(AppError):
 
 class AlreadyExistsError(ConflictError):
     code = 'already_exists'
+    entity = 'Object'
+    message_template = '{entity} already exists'
 
-    def __init__(self, entity: str) -> None:
-        super().__init__(f'{entity} already exists')
+    def __init__(self) -> None:
+        super().__init__(self.message_template.format(entity=self.entity))
+
+
+class GenreAlreadyExistsError(AlreadyExistsError):
+    entity = 'Genre'
+
+
+class UserAlreadyExistsError(AlreadyExistsError):
+    entity = 'User'
