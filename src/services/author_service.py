@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import AuthorNotFoundError
+from src.exceptions import NotFoundError
 from src.mappers.authors import apply_author_update, to_author_model, to_author_read
 from src.models.authors import AuthorModel
 from src.repository import AuthorRepo
@@ -19,7 +19,7 @@ class AuthorService(BaseService[AuthorRepo]):
         author = await self.repo.get(author_id, *options)
         if author is None:
             logger.info('author not found: %s', author_id)
-            raise AuthorNotFoundError(author_id)
+            raise NotFoundError(f'Author {author_id} not found')
         return author
 
     async def create(self, payload: AuthorCreate) -> AuthorRead:

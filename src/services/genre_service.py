@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import GenreAlreadyExistsError, GenreNotFoundError
+from src.exceptions import AlreadyExistsError, NotFoundError
 from src.mappers.genres import apply_genre_update, to_genre_read
 from src.models.genres import GenreModel
 from src.repository import GenreRepo
@@ -19,7 +19,7 @@ class GenreService(BaseService[GenreRepo]):
         genre = await self.repo.get(genre_id, *options)
         if genre is None:
             logger.info('genre not found: %s', genre_id)
-            raise GenreNotFoundError(genre_id)
+            raise NotFoundError(f'Genre {genre_id} not found')
         return genre
 
     async def create(self, payload: GenreCreate) -> GenreRead:
@@ -28,7 +28,7 @@ class GenreService(BaseService[GenreRepo]):
         genre = await self.repo.create_ignoring_conflict(payload.name)
         if genre is None:
             logger.info('genre already exists: %s', payload.name)
-            raise GenreAlreadyExistsError
+            raise AlreadyExistsError('Genre with this name already exists')
         genre.moods = list(moods)
         await self.repo.save(genre, 'moods')
         return to_genre_read(genre)
@@ -43,7 +43,7 @@ class GenreService(BaseService[GenreRepo]):
             await self.repo.advisory_lock('name', payload.name)
             if await self.repo.exists(GenreModel.name == payload.name, GenreModel.id != genre_id):
                 logger.info('genre already exists: %s', payload.name)
-                raise GenreAlreadyExistsError
+                raise AlreadyExistsError('Genre with this name already exists')
         apply_genre_update(genre, payload)
         if payload.moods is not None:
             genre.moods = list(await self.repo.upsert_moods([mood.name for mood in payload.moods]))

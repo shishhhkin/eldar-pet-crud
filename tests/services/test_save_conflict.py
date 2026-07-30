@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.exceptions import GenreAlreadyExistsError, UserAlreadyExistsError
+from src.exceptions import AlreadyExistsError
 from src.models.genres import GenreModel
 from src.repository import GenreRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate
@@ -39,11 +39,11 @@ async def test_duplicate_genre_name_raises_already_exists(
 
     with (
         caplog.at_level(logging.INFO, logger='src.services.genre_service'),
-        pytest.raises(GenreAlreadyExistsError) as excinfo,
+        pytest.raises(AlreadyExistsError) as excinfo,
     ):
         await service.create(_genre_payload())
 
-    assert str(excinfo.value) == 'Genre already exists'
+    assert str(excinfo.value) == 'Genre with this name already exists'
     records = [record for record in caplog.records if record.name == 'src.services.genre_service']
     assert records
     assert all(record.levelno == logging.INFO for record in records)
@@ -54,18 +54,20 @@ async def test_duplicate_username_raises_already_exists(db_session: AsyncSession
     service = UserService(UserRepo(db_session))
     await service.create(_user_payload())
 
-    with pytest.raises(UserAlreadyExistsError) as excinfo:
+    with pytest.raises(AlreadyExistsError) as excinfo:
         await service.create(_user_payload(email='other@example.com'))
 
-    assert str(excinfo.value) == 'User already exists'
+    assert str(excinfo.value) == 'User with this username or email already exists'
 
 
 async def test_duplicate_email_raises_already_exists(db_session: AsyncSession) -> None:
     service = UserService(UserRepo(db_session))
     await service.create(_user_payload())
 
-    with pytest.raises(UserAlreadyExistsError):
+    with pytest.raises(AlreadyExistsError) as excinfo:
         await service.create(_user_payload(username='bob'))
+
+    assert str(excinfo.value) == 'User with this username or email already exists'
 
 
 async def test_repo_save_propagates_not_null_violation(db_session: AsyncSession) -> None:

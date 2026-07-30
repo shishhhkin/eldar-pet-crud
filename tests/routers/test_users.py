@@ -199,7 +199,7 @@ async def test_create_user_duplicate_username(client: AsyncClient) -> None:
     assert response.status_code == 409
     body = response.json()
     assert body['code'] == 'already_exists'
-    assert body['detail'] == 'User already exists'
+    assert body['detail'] == 'User with this username or email already exists'
     assert body['request_id']
 
 
@@ -212,7 +212,7 @@ async def test_create_user_duplicate_email(client: AsyncClient) -> None:
     assert response.status_code == 409
     body = response.json()
     assert body['code'] == 'already_exists'
-    assert body['detail'] == 'User already exists'
+    assert body['detail'] == 'User with this username or email already exists'
 
 
 async def test_update_user_to_duplicate_email(client: AsyncClient) -> None:
@@ -224,7 +224,7 @@ async def test_update_user_to_duplicate_email(client: AsyncClient) -> None:
     assert response.status_code == 409
     body = response.json()
     assert body['code'] == 'already_exists'
-    assert body['detail'] == 'User already exists'
+    assert body['detail'] == 'User with this email already exists'
     assert body['request_id']
 
 
@@ -235,7 +235,9 @@ async def test_update_user_to_duplicate_username(client: AsyncClient) -> None:
     response = await client.patch(f'/users/{created["id"]}', json={'username': 'alice'})
 
     assert response.status_code == 409
-    assert response.json()['code'] == 'already_exists'
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'User with this username already exists'
 
 
 async def test_concurrent_user_updates_to_same_new_username_only_one_wins(

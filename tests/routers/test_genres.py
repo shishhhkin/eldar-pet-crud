@@ -191,7 +191,7 @@ async def test_create_genre_duplicate_name(client: AsyncClient) -> None:
     assert response.status_code == 409
     body = response.json()
     assert body['code'] == 'already_exists'
-    assert body['detail'] == 'Genre already exists'
+    assert body['detail'] == 'Genre with this name already exists'
     assert body['request_id']
 
 
@@ -204,7 +204,7 @@ async def test_update_genre_to_duplicate_name(client: AsyncClient) -> None:
     assert response.status_code == 409
     body = response.json()
     assert body['code'] == 'already_exists'
-    assert body['detail'] == 'Genre already exists'
+    assert body['detail'] == 'Genre with this name already exists'
     assert body['request_id']
 
 

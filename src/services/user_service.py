@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import UserAlreadyExistsError, UserNotFoundError
+from src.exceptions import AlreadyExistsError, NotFoundError
 from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
 from src.repository import UserRepo
@@ -19,7 +19,7 @@ class UserService(BaseService[UserRepo]):
         user = await self.repo.get(user_id, *options)
         if user is None:
             logger.info('user not found: %s', user_id)
-            raise UserNotFoundError(user_id)
+            raise NotFoundError(f'User {user_id} not found')
         return user
 
     async def create(self, payload: UserCreate) -> UserRead:
@@ -29,8 +29,10 @@ class UserService(BaseService[UserRepo]):
             username=payload.username, email=payload.email
         )
         if user is None:
-            logger.info('user already exists: %s', payload.username)
-            raise UserAlreadyExistsError
+            logger.info(
+                'user already exists: username=%s email=%s', payload.username, payload.email
+            )
+            raise AlreadyExistsError('User with this username or email already exists')
         user.profile = to_user_profile_model(payload.profile)
         await self.repo.save(user, 'profile')
         return to_user_read(user)
@@ -46,13 +48,13 @@ class UserService(BaseService[UserRepo]):
             if await self.repo.exists(
                 UserModel.username == payload.username, UserModel.id != user_id
             ):
-                logger.info('user already exists: %s', payload.username)
-                raise UserAlreadyExistsError
+                logger.info('username already exists: %s', payload.username)
+                raise AlreadyExistsError('User with this username already exists')
         if payload.email is not None:
             await self.repo.advisory_lock('email', payload.email)
             if await self.repo.exists(UserModel.email == payload.email, UserModel.id != user_id):
-                logger.info('user already exists: %s', payload.email)
-                raise UserAlreadyExistsError
+                logger.info('email already exists: %s', payload.email)
+                raise AlreadyExistsError('User with this email already exists')
         apply_user_update(user, payload)
         await self.repo.save(user)
         return to_user_read(user)

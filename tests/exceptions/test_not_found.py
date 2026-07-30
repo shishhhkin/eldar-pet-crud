@@ -1,19 +1,21 @@
+from http import HTTPStatus
 from uuid import uuid4
 
-from src.exceptions import AuthorNotFoundError, ObjectNotFoundError
+from src.exceptions import NotFoundError
 
 
-async def test_subclass_renders_default_template_with_entity() -> None:
-    object_id = uuid4()
+async def test_message_is_used_as_is() -> None:
+    message = f'Author {uuid4()} not found'
 
-    assert AuthorNotFoundError(object_id).message == f'Author {object_id} not found'
+    assert NotFoundError(message).message == message
 
 
-async def test_message_template_override_changes_message() -> None:
-    class WidgetNotFoundError(ObjectNotFoundError):
-        entity = 'Widget'
-        message_template = '{entity} {object_id} is gone'
+async def test_falls_back_to_default_message() -> None:
+    assert NotFoundError().message == 'Not found'
 
-    object_id = uuid4()
 
-    assert WidgetNotFoundError(object_id).message == f'Widget {object_id} is gone'
+async def test_keeps_not_found_status_and_code() -> None:
+    error = NotFoundError()
+
+    assert error.status_code == HTTPStatus.NOT_FOUND
+    assert error.code == 'not_found'

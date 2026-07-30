@@ -8,7 +8,7 @@ _REQUEST_ID_EXAMPLE = '8727204f-be85-4c38-acf4-455ed8188dc0'
 _RESOURCE_ID_EXAMPLE = '22235be6-92c8-4eee-8a26-b6b05cc323ab'
 
 _NOT_FOUND_DESC = 'Объект с указанным id не найден'
-_CONFLICT_DESC = 'Конфликт: нарушение уникальности или ссылочной целостности'
+_CONFLICT_DESC = 'Конфликт: значение уникального поля уже занято'
 _BODY_VALIDATION_DESC = 'Ошибка валидации тела запроса'
 _PATH_VALIDATION_DESC = 'Некорректный формат id в пути'
 
@@ -38,8 +38,8 @@ class ConflictResponse(ErrorResponse):
         json_schema_extra={
             'examples': [
                 ErrorResponse(
-                    code='conflict',
-                    detail='Conflict: resource violates a uniqueness or relational constraint',
+                    code='already_exists',
+                    detail='Resource with this <field> already exists',
                     request_id=_REQUEST_ID_EXAMPLE,
                 ).model_dump(mode='json')
             ]
