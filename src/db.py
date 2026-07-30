@@ -1,10 +1,19 @@
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from typing import Final
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from src.config import Settings
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
+
+READONLY_EXECUTION_OPTIONS: Final = {'postgresql_readonly': True}
+
 
 engine: AsyncEngine = create_async_engine(
     str(settings.postgres_url),
@@ -18,14 +27,12 @@ SessionFactory = async_sessionmaker(
 )
 
 
-@asynccontextmanager
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncIterator[AsyncSession]:
     async with SessionFactory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+        await session.connection(execution_options=READONLY_EXECUTION_OPTIONS)
+        yield session
+
+
+async def get_tx_session() -> AsyncIterator[AsyncSession]:
+    async with SessionFactory() as session, session.begin():
+        yield session

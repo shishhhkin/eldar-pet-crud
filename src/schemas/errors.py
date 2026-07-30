@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
+_REQUEST_ID_EXAMPLE = '8727204f-be85-4c38-acf4-455ed8188dc0'
+_RESOURCE_ID_EXAMPLE = '22235be6-92c8-4eee-8a26-b6b05cc323ab'
+
+_NOT_FOUND_DESC = 'Объект с указанным id не найден'
+_CONFLICT_DESC = 'Конфликт: значение уникального поля уже занято'
+_BODY_VALIDATION_DESC = 'Ошибка валидации тела запроса'
+_PATH_VALIDATION_DESC = 'Некорректный формат id в пути'
+
+
+class ErrorResponse(BaseModel):
+    code: str
+    detail: str
+    request_id: str | None = None
+
+
+class NotFoundResponse(ErrorResponse):
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                ErrorResponse(
+                    code='not_found',
+                    detail=f'Resource {_RESOURCE_ID_EXAMPLE} not found',
+                    request_id=_REQUEST_ID_EXAMPLE,
+                ).model_dump(mode='json')
+            ]
+        }
+    )
+
+
+class ConflictResponse(ErrorResponse):
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                ErrorResponse(
+                    code='already_exists',
+                    detail='Resource with this <field> already exists',
+                    request_id=_REQUEST_ID_EXAMPLE,
+                ).model_dump(mode='json')
+            ]
+        }
+    )
+
+
+class ValidationErrorItem(BaseModel):
+    type: str
+    loc: list[str | int]
+    msg: str
+    input: Any = None
+    ctx: dict[str, Any] | None = None
+
+
+class BodyValidationResponse(BaseModel):
+    detail: list[ValidationErrorItem]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                {
+                    'detail': [
+                        ValidationErrorItem(
+                            type='string_too_short',
+                            loc=['body', '<field>'],
+                            msg='String should have at least 1 character',
+                            input='',
+                            ctx={'min_length': 1},
+                        ).model_dump(mode='json', exclude_none=True)
+                    ]
+                }
+            ]
+        }
+    )
+
+
+class PathValidationResponse(BaseModel):
+    detail: list[ValidationErrorItem]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            'examples': [
+                {
+                    'detail': [
+                        ValidationErrorItem(
+                            type='uuid_parsing',
+                            loc=['path', '<id>'],
+                            msg='Input should be a valid UUID',
+                            input='<not-a-uuid>',
+                        ).model_dump(mode='json', exclude_none=True)
+                    ]
+                }
+            ]
+        }
+    )
+
+
+CREATE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    409: {'model': ConflictResponse, 'description': _CONFLICT_DESC},
+    422: {'model': BodyValidationResponse, 'description': _BODY_VALIDATION_DESC},
+}
+READ_RESPONSES: dict[int | str, dict[str, Any]] = {
+    404: {'model': NotFoundResponse, 'description': _NOT_FOUND_DESC},
+    422: {'model': PathValidationResponse, 'description': _PATH_VALIDATION_DESC},
+}
+UPDATE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    404: {'model': NotFoundResponse, 'description': _NOT_FOUND_DESC},
+    409: {'model': ConflictResponse, 'description': _CONFLICT_DESC},
+    422: {'model': BodyValidationResponse, 'description': _BODY_VALIDATION_DESC},
+}
+DELETE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    404: {'model': NotFoundResponse, 'description': _NOT_FOUND_DESC},
+    422: {'model': PathValidationResponse, 'description': _PATH_VALIDATION_DESC},
+}

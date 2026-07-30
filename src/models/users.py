@@ -1,23 +1,39 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import sqlalchemy as sa
-from sqlalchemy.orm import DeclarativeMeta, Mapped, declarative_base, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from uuid import UUID, uuid4
+from src.models.base import Base
 
-metadata = sa.MetaData()
-
-
-class BaseServiceModel:
-    """Базовый класс для таблиц сервиса."""
-
-    @classmethod
-    def on_conflict_constraint(cls) -> tuple | None:
-        return None
-
-
-Base: DeclarativeMeta = declarative_base(metadata=metadata, cls=BaseServiceModel)
+if TYPE_CHECKING:
+    from src.models.user_profiles import UserProfileModel
 
 
 class UserModel(Base):
     __tablename__ = 'users'
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    username: Mapped[str] = mapped_column(sa.String())
+    __table_args__ = (
+        sa.Index(
+            'uq_users_username_active',
+            'username',
+            unique=True,
+            postgresql_where=sa.text('is_deleted = false'),
+        ),
+        sa.Index(
+            'uq_users_email_active',
+            'email',
+            unique=True,
+            postgresql_where=sa.text('is_deleted = false'),
+        ),
+    )
+
+    username: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    email: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+
+    profile: Mapped[UserProfileModel] = relationship(
+        back_populates='user',
+        uselist=False,
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+    )
