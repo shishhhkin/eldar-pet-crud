@@ -68,8 +68,8 @@ async def test_duplicate_email_raises_already_exists(db_session: AsyncSession) -
         await service.create(_user_payload(username='bob'))
 
 
-async def test_non_unique_integrity_error_propagates(db_session: AsyncSession) -> None:
-    service = GenreService(GenreRepo(db_session))
+async def test_repo_save_propagates_not_null_violation(db_session: AsyncSession) -> None:
+    repo = Repo(db_session, GenreModel)
 
     with pytest.raises(IntegrityError):
-        await service._save_or_raise(GenreModel())
+        await repo.save(GenreModel())

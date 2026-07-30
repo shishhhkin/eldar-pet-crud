@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterator
 from typing import Final
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -14,12 +13,6 @@ from src.config import Settings
 settings = Settings()  # type: ignore[call-arg]
 
 READONLY_EXECUTION_OPTIONS: Final = {'postgresql_readonly': True}
-
-UNIQUE_VIOLATION: Final = '23505'
-
-
-def is_unique_violation(exc: IntegrityError) -> bool:
-    return getattr(exc.orig, 'sqlstate', None) == UNIQUE_VIOLATION
 
 
 engine: AsyncEngine = create_async_engine(

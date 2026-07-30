@@ -1,6 +1,8 @@
+from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnExpressionArgument, Select, TextClause, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.sql.base import ExecutableOption
@@ -34,3 +36,28 @@ class Repo[ModelT: Base]:
         if eager_load:
             await self.session.refresh(obj, attribute_names=list(eager_load))
         return obj
+
+    async def advisory_lock(self, column: str, value: str) -> None:
+        namespace = f'{self.model.__tablename__}.{column}'
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext(namespace), func.hashtext(value)))
+        )
+
+    async def exists(self, *predicates: ColumnExpressionArgument[bool]) -> bool:
+        stmt = self.select().where(*predicates).with_only_columns(self.model.id).limit(1)
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def insert_ignoring_conflict(
+        self,
+        *,
+        index_elements: Sequence[str] | None = None,
+        index_where: TextClause | None = None,
+        **values: object,
+    ) -> ModelT | None:
+        stmt = (
+            pg_insert(self.model)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=index_elements, index_where=index_where)
+            .returning(self.model)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()

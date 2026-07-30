@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -212,6 +213,58 @@ async def test_create_user_duplicate_email(client: AsyncClient) -> None:
     body = response.json()
     assert body['code'] == 'already_exists'
     assert body['detail'] == 'User already exists'
+
+
+async def test_update_user_to_duplicate_email(client: AsyncClient) -> None:
+    await client.post('/users', json=_payload())
+    created = (await client.post('/users', json=_payload('bob', 'bob@example.com'))).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={'email': 'alice@example.com'})
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'User already exists'
+    assert body['request_id']
+
+
+async def test_update_user_to_duplicate_username(client: AsyncClient) -> None:
+    await client.post('/users', json=_payload())
+    created = (await client.post('/users', json=_payload('bob', 'bob@example.com'))).json()
+
+    response = await client.patch(f'/users/{created["id"]}', json={'username': 'alice'})
+
+    assert response.status_code == 409
+    assert response.json()['code'] == 'already_exists'
+
+
+async def test_concurrent_user_updates_to_same_new_username_only_one_wins(
+    client: AsyncClient,
+) -> None:
+    alice = (await client.post('/users', json=_payload('alice', 'alice@example.com'))).json()
+    bob = (await client.post('/users', json=_payload('bob', 'bob@example.com'))).json()
+
+    responses = await asyncio.gather(
+        client.patch(f'/users/{alice["id"]}', json={'username': 'carol'}),
+        client.patch(f'/users/{bob["id"]}', json={'username': 'carol'}),
+    )
+
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [200, 409]
+    conflict = next(response for response in responses if response.status_code == 409)
+    assert conflict.json()['code'] == 'already_exists'
+
+
+async def test_update_user_keeps_own_username_and_email(client: AsyncClient) -> None:
+    created = (await client.post('/users', json=_payload())).json()
+
+    response = await client.patch(
+        f'/users/{created["id"]}',
+        json={'username': 'alice', 'email': 'alice@example.com'},
+    )
+
+    assert response.status_code == 200
+    assert response.json()['username'] == 'alice'
 
 
 async def test_create_user_username_with_dash_rejected(client: AsyncClient) -> None:

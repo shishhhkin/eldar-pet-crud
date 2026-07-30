@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -192,6 +193,77 @@ async def test_create_genre_duplicate_name(client: AsyncClient) -> None:
     assert body['code'] == 'already_exists'
     assert body['detail'] == 'Genre already exists'
     assert body['request_id']
+
+
+async def test_update_genre_to_duplicate_name(client: AsyncClient) -> None:
+    await client.post('/genres', json=_payload('первый'))
+    created = (await client.post('/genres', json=_payload('второй'))).json()
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'name': 'первый'})
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body['code'] == 'already_exists'
+    assert body['detail'] == 'Genre already exists'
+    assert body['request_id']
+
+
+async def test_update_genre_to_duplicate_name_with_moods(client: AsyncClient) -> None:
+    await client.post('/genres', json=_payload('первый'))
+    created = (await client.post('/genres', json=_payload('второй'))).json()
+
+    response = await client.patch(
+        f'/genres/{created["id"]}',
+        json={'name': 'первый', 'moods': [{'name': 'радость'}]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()['code'] == 'already_exists'
+
+
+async def test_concurrent_genre_updates_to_same_new_name_only_one_wins(
+    client: AsyncClient,
+) -> None:
+    second = (await client.post('/genres', json=_payload('второй'))).json()
+    third = (await client.post('/genres', json=_payload('третий'))).json()
+
+    responses = await asyncio.gather(
+        client.patch(f'/genres/{second["id"]}', json={'name': 'общее'}),
+        client.patch(f'/genres/{third["id"]}', json={'name': 'общее'}),
+    )
+
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [200, 409]
+    conflict = next(response for response in responses if response.status_code == 409)
+    assert conflict.json()['code'] == 'already_exists'
+
+
+async def test_concurrent_genre_create_and_update_to_same_name_only_one_wins(
+    client: AsyncClient,
+) -> None:
+    existing = (await client.post('/genres', json=_payload('второй'))).json()
+
+    responses = await asyncio.gather(
+        client.post('/genres', json=_payload('общее')),
+        client.patch(f'/genres/{existing["id"]}', json={'name': 'общее'}),
+    )
+
+    statuses = [response.status_code for response in responses]
+    assert 409 in statuses
+    assert any(status in (200, 201) for status in statuses)
+    conflict = responses[statuses.index(409)]
+    assert conflict.json()['code'] == 'already_exists'
+
+
+async def test_update_genre_to_deleted_name(client: AsyncClient) -> None:
+    first = (await client.post('/genres', json=_payload('первый'))).json()
+    created = (await client.post('/genres', json=_payload('второй'))).json()
+    await client.delete(f'/genres/{first["id"]}')
+
+    response = await client.patch(f'/genres/{created["id"]}', json={'name': 'первый'})
+
+    assert response.status_code == 200
+    assert response.json()['name'] == 'первый'
 
 
 async def test_recreate_genre_with_deleted_name(client: AsyncClient) -> None:

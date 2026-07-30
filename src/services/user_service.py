@@ -1,13 +1,11 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.db import is_unique_violation
 from src.exceptions import UserAlreadyExistsError, UserNotFoundError
-from src.mappers.users import apply_user_update, to_user_model, to_user_read
+from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
 from src.repository import UserRepo
 from src.schemas.users import UserCreate, UserRead, UserUpdate
@@ -24,18 +22,17 @@ class UserService(BaseService[UserRepo]):
             raise UserNotFoundError(user_id)
         return user
 
-    async def _save_or_raise(self, user: UserModel, *eager_load: str) -> None:
-        try:
-            await self.repo.save(user, *eager_load)
-        except IntegrityError as exc:
-            if not is_unique_violation(exc):
-                raise
-            logger.info('user already exists: %s', user.username)
-            raise UserAlreadyExistsError from exc
-
     async def create(self, payload: UserCreate) -> UserRead:
-        user = to_user_model(payload)
-        await self._save_or_raise(user, 'profile')
+        await self.repo.advisory_lock('username', payload.username)
+        await self.repo.advisory_lock('email', payload.email)
+        user = await self.repo.create_ignoring_conflict(
+            username=payload.username, email=payload.email
+        )
+        if user is None:
+            logger.info('user already exists: %s', payload.username)
+            raise UserAlreadyExistsError
+        user.profile = to_user_profile_model(payload.profile)
+        await self.repo.save(user, 'profile')
         return to_user_read(user)
 
     async def get(self, user_id: UUID) -> UserRead:
@@ -44,8 +41,20 @@ class UserService(BaseService[UserRepo]):
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:
         user = await self._get_or_raise(user_id, selectinload(UserModel.profile))
+        if payload.username is not None:
+            await self.repo.advisory_lock('username', payload.username)
+            if await self.repo.exists(
+                UserModel.username == payload.username, UserModel.id != user_id
+            ):
+                logger.info('user already exists: %s', payload.username)
+                raise UserAlreadyExistsError
+        if payload.email is not None:
+            await self.repo.advisory_lock('email', payload.email)
+            if await self.repo.exists(UserModel.email == payload.email, UserModel.id != user_id):
+                logger.info('user already exists: %s', payload.email)
+                raise UserAlreadyExistsError
         apply_user_update(user, payload)
-        await self._save_or_raise(user)
+        await self.repo.save(user)
         return to_user_read(user)
 
     async def delete(self, user_id: UUID) -> None:
@@ -53,4 +62,4 @@ class UserService(BaseService[UserRepo]):
         user.is_deleted = True
         if user.profile is not None:
             user.profile.is_deleted = True
-        await self._save_or_raise(user)
+        await self.repo.save(user)

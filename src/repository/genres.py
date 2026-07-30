@@ -13,6 +13,16 @@ class GenreRepo(Repo[GenreModel]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, GenreModel)
 
+    async def create_ignoring_conflict(self, name: str) -> GenreModel | None:
+        genre = await self.insert_ignoring_conflict(
+            index_elements=['name'],
+            index_where=text('is_deleted = false'),
+            name=name,
+        )
+        if genre is not None:
+            await self.session.refresh(genre, attribute_names=['moods'])
+        return genre
+
     async def upsert_moods(self, names: Sequence[str]) -> Sequence[MoodModel]:
         insert_stmt = (
             pg_insert(MoodModel)
