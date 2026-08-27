@@ -2,10 +2,9 @@ import logging
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import AlreadyExistsError, NotFoundError
-from src.mappers.genres import apply_genre_update, to_genre_read
+from src.exceptions import AlreadyExistsError
+from src.mappers.genres import apply_genre_update
 from src.models.genres import GenreModel
 from src.repository import GenreRepo
 from src.schemas.genres import GenreCreate, GenreRead, GenreUpdate
@@ -14,13 +13,10 @@ from src.services.base import BaseService
 logger = logging.getLogger(__name__)
 
 
-class GenreService(BaseService[GenreRepo]):
-    async def _get_or_raise(self, genre_id: UUID, *options: ExecutableOption) -> GenreModel:
-        genre = await self.repo.get(genre_id, *options)
-        if genre is None:
-            logger.info('genre not found: %s', genre_id)
-            raise NotFoundError(f'Genre {genre_id} not found')
-        return genre
+class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
+    entity_name = 'Genre'
+    read_model = GenreRead
+    load_options = (selectinload(GenreModel.moods),)
 
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.upsert_moods([mood.name for mood in payload.moods])
@@ -31,14 +27,10 @@ class GenreService(BaseService[GenreRepo]):
             raise AlreadyExistsError('Genre with this name already exists')
         genre.moods = list(moods)
         await self.repo.save(genre, 'moods')
-        return to_genre_read(genre)
-
-    async def get(self, genre_id: UUID) -> GenreRead:
-        genre = await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
-        return to_genre_read(genre)
+        return self.read_model.model_validate(genre)
 
     async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreRead:
-        genre = await self._get_or_raise(genre_id, selectinload(GenreModel.moods))
+        genre = await self._get_or_raise(genre_id, *self.load_options)
         if payload.name is not None:
             await self.repo.advisory_lock('name', payload.name)
             if await self.repo.exists(GenreModel.name == payload.name, GenreModel.id != genre_id):
@@ -48,9 +40,11 @@ class GenreService(BaseService[GenreRepo]):
         if payload.moods is not None:
             genre.moods = list(await self.repo.upsert_moods([mood.name for mood in payload.moods]))
         await self.repo.save(genre, 'moods')
-        return to_genre_read(genre)
+        self.repo.invalidate_after_commit(self._cache_key(genre_id))
+        return self.read_model.model_validate(genre)
 
     async def delete(self, genre_id: UUID) -> None:
         genre = await self._get_or_raise(genre_id)
         genre.is_deleted = True
         await self.repo.save(genre)
+        self.repo.invalidate_after_commit(self._cache_key(genre_id))

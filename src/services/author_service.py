@@ -1,45 +1,35 @@
-import logging
 from uuid import UUID
 
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql.base import ExecutableOption
 
-from src.exceptions import NotFoundError
-from src.mappers.authors import apply_author_update, to_author_model, to_author_read
+from src.mappers.authors import apply_author_update, to_author_model
 from src.models.authors import AuthorModel
 from src.repository import AuthorRepo
 from src.schemas.authors import AuthorCreate, AuthorRead, AuthorUpdate
 from src.services.base import BaseService
 
-logger = logging.getLogger(__name__)
 
-
-class AuthorService(BaseService[AuthorRepo]):
-    async def _get_or_raise(self, author_id: UUID, *options: ExecutableOption) -> AuthorModel:
-        author = await self.repo.get(author_id, *options)
-        if author is None:
-            logger.info('author not found: %s', author_id)
-            raise NotFoundError(f'Author {author_id} not found')
-        return author
+class AuthorService(BaseService[AuthorRepo, AuthorModel, AuthorRead]):
+    entity_name = 'Author'
+    read_model = AuthorRead
+    load_options = (selectinload(AuthorModel.books),)
 
     async def create(self, payload: AuthorCreate) -> AuthorRead:
         author = to_author_model(payload)
         await self.repo.save(author, 'books')
-        return to_author_read(author)
-
-    async def get(self, author_id: UUID) -> AuthorRead:
-        author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
-        return to_author_read(author)
+        return self.read_model.model_validate(author)
 
     async def update(self, author_id: UUID, payload: AuthorUpdate) -> AuthorRead:
-        author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
+        author = await self._get_or_raise(author_id, *self.load_options)
         apply_author_update(author, payload)
         await self.repo.save(author, 'books')
-        return to_author_read(author)
+        self.repo.invalidate_after_commit(self._cache_key(author_id))
+        return self.read_model.model_validate(author)
 
     async def delete(self, author_id: UUID) -> None:
-        author = await self._get_or_raise(author_id, selectinload(AuthorModel.books))
+        author = await self._get_or_raise(author_id, *self.load_options)
         author.is_deleted = True
         for book in author.books:
             book.is_deleted = True
         await self.repo.save(author)
+        self.repo.invalidate_after_commit(self._cache_key(author_id))

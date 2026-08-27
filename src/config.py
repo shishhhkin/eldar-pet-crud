@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     postgres_port: int
     postgres_db: str
 
+    redis_host: str
+    redis_port: int
+    cache_ttl_seconds: int
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding='utf-8',

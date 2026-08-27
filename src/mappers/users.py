@@ -1,7 +1,7 @@
 from src.mappers.base import apply_fields
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
-from src.schemas.users import UserProfilePayload, UserRead, UserUpdate
+from src.schemas.users import UserProfilePayload, UserUpdate
 
 
 def to_user_profile_model(payload: UserProfilePayload) -> UserProfileModel:
@@ -16,7 +16,3 @@ def apply_user_update(user: UserModel, payload: UserUpdate) -> None:
         else:
             for key, value in payload.profile.model_dump(mode='json').items():
                 setattr(user.profile, key, value)
-
-
-def to_user_read(user: UserModel) -> UserRead:
-    return UserRead.model_validate(user)
