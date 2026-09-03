@@ -1,7 +1,10 @@
 from uuid import uuid4
 
+import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
+
+from src.services.author_service import AuthorService
 
 
 def _author_payload() -> dict:
@@ -63,3 +66,26 @@ async def test_missing_entity_does_not_reuse_another_namespace(
 
     assert (await client.get(f'/genres/{obj_id}')).status_code == 404
     assert (await client.get(f'/users/{obj_id}')).status_code == 404
+
+
+async def test_cache_key_is_independent_of_entity_name(
+    client: AsyncClient, redis_client: Redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(AuthorService, 'entity_name', 'Писатель')
+    author_id = await _create(client, '/authors', _author_payload())
+
+    assert (await client.get(f'/authors/{author_id}')).status_code == 200
+
+    assert await redis_client.keys('*') == [f'v1:author:{author_id}'.encode()]
+
+
+async def test_not_found_message_is_independent_of_cache_namespace(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(AuthorService, 'cache_namespace', 'writer')
+    author_id = uuid4()
+
+    response = await client.get(f'/authors/{author_id}')
+
+    assert response.status_code == 404
+    assert response.json()['detail'] == f'Author {author_id} not found'

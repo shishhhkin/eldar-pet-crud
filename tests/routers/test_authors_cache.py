@@ -8,16 +8,16 @@ from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.cache import Cache
-from src.dependencies import invalidating_tx_session
 from src.exceptions import NotFoundError
+from src.infra.cache import TOMBSTONE, Cache, CacheSession
+from src.infra.db import readonly_session
+from src.infra.unit_of_work import invalidating_tx_session
 from src.models.authors import AuthorModel
 from src.repository import AuthorRepo, Repo
-from src.repository.base import pop_invalidation_keys
 from src.schemas.authors import AuthorRead, AuthorUpdate
 from src.services.author_service import AuthorService
 
-CACHE_LOGGER = 'src.cache'
+CACHE_LOGGER = 'src.infra.cache'
 SERVICE_LOGGER = 'src.services.base'
 NEW_NAME = 'Новое Имя'
 
@@ -138,7 +138,7 @@ async def test_update_invalidates_cached_author(client: AsyncClient, redis_clien
 
     updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
     assert updated.status_code == 200
-    assert await redis_client.get(_key(created['id'])) is None
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
 
     response = await client.get(f'/authors/{created["id"]}')
 
@@ -152,7 +152,7 @@ async def test_delete_invalidates_cached_author(client: AsyncClient, redis_clien
 
     deleted = await client.delete(f'/authors/{created["id"]}')
     assert deleted.status_code == 204
-    assert await redis_client.get(_key(created['id'])) is None
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
 
     response = await client.get(f'/authors/{created["id"]}')
 
@@ -165,7 +165,7 @@ async def test_create_does_not_touch_cache(client: AsyncClient, redis_client: Re
     assert await redis_client.keys('*') == []
 
 
-async def test_key_is_deleted_after_commit(
+async def test_key_is_invalidated_after_commit(
     client: AsyncClient,
     cache: Cache,
     session_factory: async_sessionmaker[AsyncSession],
@@ -174,18 +174,18 @@ async def test_key_is_deleted_after_commit(
     created = await _create_author(client)
     await client.get(f'/authors/{created["id"]}')
     stored_names: list[str | None] = []
-    delete = cache.delete
+    tombstone = cache.tombstone
 
-    async def recording_delete(key: str) -> None:
+    async def recording_tombstone(key: str) -> None:
         async with session_factory() as session:
             stored_names.append(
                 await session.scalar(
                     select(AuthorModel.name).where(AuthorModel.id == UUID(created['id']))
                 )
             )
-        await delete(key)
+        await tombstone(key)
 
-    monkeypatch.setattr(cache, 'delete', recording_delete)
+    monkeypatch.setattr(cache, 'tombstone', recording_tombstone)
 
     response = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
 
@@ -195,20 +195,42 @@ async def test_key_is_deleted_after_commit(
 
 async def test_failed_update_does_not_invalidate(
     session_factory: async_sessionmaker[AsyncSession],
-    cache: Cache,
+    cache_session: CacheSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    deleted_keys: list[str] = []
+    invalidated_keys: list[str] = []
 
-    async def recording_delete(key: str) -> None:
-        deleted_keys.append(key)
+    async def recording_tombstone(key: str) -> None:
+        invalidated_keys.append(key)
 
-    monkeypatch.setattr(cache, 'delete', recording_delete)
+    monkeypatch.setattr(cache_session.cache, 'tombstone', recording_tombstone)
 
     with pytest.raises(NotFoundError):
-        async with invalidating_tx_session(session_factory, cache) as session:
-            service = AuthorService(AuthorRepo(session), cache)
+        async with invalidating_tx_session(session_factory, cache_session) as session:
+            service = AuthorService(AuthorRepo(session), cache_session)
             await service.update(uuid4(), AuthorUpdate(name=NEW_NAME))
 
-    assert deleted_keys == []
-    assert pop_invalidation_keys(session) == []
+    assert invalidated_keys == []
+    assert cache_session.pending == []
+
+
+async def test_concurrent_get_does_not_restore_stale_value(
+    client: AsyncClient,
+    cache_session: CacheSession,
+    session_factory: async_sessionmaker[AsyncSession],
+    redis_client: Redis,
+) -> None:
+    created = await _create_author(client)
+    key = _key(created['id'])
+
+    async with readonly_session(session_factory) as session:
+        stale = await AuthorRepo(session).get(UUID(created['id']), *AuthorService.load_options)
+        stale_payload = AuthorRead.model_validate(stale).model_dump_json().encode()
+
+    updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+    assert updated.status_code == 200
+
+    await cache_session.add(key, stale_payload)
+
+    assert await redis_client.get(key) == TOMBSTONE
+    assert await cache_session.get(key) is None

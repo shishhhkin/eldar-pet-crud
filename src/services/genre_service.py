@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
     entity_name = 'Genre'
+    cache_namespace = 'genre'
     read_model = GenreRead
     load_options = (selectinload(GenreModel.moods),)
 
@@ -40,11 +41,11 @@ class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
         if payload.moods is not None:
             genre.moods = list(await self.repo.upsert_moods([mood.name for mood in payload.moods]))
         await self.repo.save(genre, 'moods')
-        self.repo.invalidate_after_commit(self._cache_key(genre_id))
+        self.cache.invalidate_after_commit(self._cache_key(genre_id))
         return self.read_model.model_validate(genre)
 
     async def delete(self, genre_id: UUID) -> None:
         genre = await self._get_or_raise(genre_id)
         genre.is_deleted = True
         await self.repo.save(genre)
-        self.repo.invalidate_after_commit(self._cache_key(genre_id))
+        self.cache.invalidate_after_commit(self._cache_key(genre_id))

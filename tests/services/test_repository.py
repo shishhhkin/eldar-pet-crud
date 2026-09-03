@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.authors import AuthorModel
 from src.repository import Repo
-from src.repository.base import pop_invalidation_keys
 
 
 async def _seed(session: AsyncSession, count: int) -> tuple[Repo[AuthorModel], list[AuthorModel]]:
@@ -36,16 +35,3 @@ async def test_get_returns_active(db_session: AsyncSession) -> None:
 
     assert fetched is not None
     assert fetched.id == authors[0].id
-
-
-async def test_pop_invalidation_keys_empty_without_writes(db_session: AsyncSession) -> None:
-    assert pop_invalidation_keys(db_session) == []
-
-
-async def test_pop_invalidation_keys_drains_collected(db_session: AsyncSession) -> None:
-    repo = Repo(db_session, AuthorModel)
-    repo.invalidate_after_commit('v1:author:1')
-    repo.invalidate_after_commit('v1:author:2')
-
-    assert pop_invalidation_keys(db_session) == ['v1:author:1', 'v1:author:2']
-    assert pop_invalidation_keys(db_session) == []

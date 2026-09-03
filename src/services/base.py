@@ -4,8 +4,8 @@ from uuid import UUID
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.sql.base import ExecutableOption
 
-from src.cache import Cache
 from src.exceptions import NotFoundError
+from src.infra.cache import CacheSession, build_key
 from src.models.base import Base
 from src.repository import Repo
 
@@ -14,15 +14,16 @@ logger = logging.getLogger(__name__)
 
 class BaseService[RepoT: Repo, ModelT: Base, ReadT: BaseModel]:
     entity_name: str
+    cache_namespace: str
     read_model: type[ReadT]
     load_options: tuple[ExecutableOption, ...] = ()
 
-    def __init__(self, repo: RepoT, cache: Cache) -> None:
+    def __init__(self, repo: RepoT, cache: CacheSession) -> None:
         self.repo = repo
         self.cache = cache
 
     def _cache_key(self, obj_id: UUID) -> str:
-        return f'v1:{self.entity_name.lower()}:{obj_id}'
+        return build_key(self.cache_namespace, obj_id)
 
     async def _get_or_raise(self, obj_id: UUID, *options: ExecutableOption) -> ModelT:
         obj: ModelT | None = await self.repo.get(obj_id, *options)
@@ -39,7 +40,8 @@ class BaseService[RepoT: Repo, ModelT: Base, ReadT: BaseModel]:
                 return self.read_model.model_validate_json(cached)
             except ValidationError:
                 logger.warning('unusable cached payload: %s', key, exc_info=True)
+                await self.cache.delete(key)
         obj = await self._get_or_raise(obj_id, *self.load_options)
         read = self.read_model.model_validate(obj)
-        await self.cache.set(key, read.model_dump_json().encode())
+        await self.cache.add(key, read.model_dump_json().encode())
         return read

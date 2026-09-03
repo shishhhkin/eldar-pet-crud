@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from typing import Final
 from uuid import UUID
 
 from sqlalchemy import ColumnExpressionArgument, Select, TextClause, func, select
@@ -9,13 +8,6 @@ from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.sql.base import ExecutableOption
 
 from src.models.base import Base
-
-INVALIDATION_KEYS: Final = 'cache_invalidation_keys'
-
-
-def pop_invalidation_keys(session: AsyncSession) -> list[str]:
-    keys: list[str] = session.info.pop(INVALIDATION_KEYS, [])
-    return keys
 
 
 def active_only() -> ExecutableOption:
@@ -44,10 +36,6 @@ class Repo[ModelT: Base]:
         if eager_load:
             await self.session.refresh(obj, attribute_names=list(eager_load))
         return obj
-
-    def invalidate_after_commit(self, key: str) -> None:
-        keys: list[str] = self.session.info.setdefault(INVALIDATION_KEYS, [])
-        keys.append(key)
 
     async def advisory_lock(self, column: str, value: str) -> None:
         namespace = f'{self.model.__tablename__}.{column}'

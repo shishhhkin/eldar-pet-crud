@@ -5,6 +5,7 @@ import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
 
+from src.infra.cache import TOMBSTONE
 from src.repository import Repo
 from src.schemas.users import UserRead
 
@@ -103,7 +104,7 @@ async def test_update_invalidates_cached_user(client: AsyncClient, redis_client:
 
     updated = await client.patch(f'/users/{created["id"]}', json={'username': NEW_USERNAME})
     assert updated.status_code == 200
-    assert await redis_client.get(_key(created['id'])) is None
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
 
     response = await client.get(f'/users/{created["id"]}')
 
@@ -117,7 +118,7 @@ async def test_delete_invalidates_cached_user(client: AsyncClient, redis_client:
 
     deleted = await client.delete(f'/users/{created["id"]}')
     assert deleted.status_code == 204
-    assert await redis_client.get(_key(created['id'])) is None
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
 
     response = await client.get(f'/users/{created["id"]}')
 

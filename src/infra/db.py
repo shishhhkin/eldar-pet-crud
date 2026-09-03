@@ -9,23 +9,15 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from src.config import Settings
-
-settings = Settings()  # type: ignore[call-arg]
-
 READONLY_EXECUTION_OPTIONS: Final = {'postgresql_readonly': True}
 
 
-engine: AsyncEngine = create_async_engine(
-    str(settings.postgres_url),
-    pool_pre_ping=True,
-)
+def build_engine(url: str) -> AsyncEngine:
+    return create_async_engine(url, pool_pre_ping=True)
 
-SessionFactory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+
+def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @asynccontextmanager
@@ -43,7 +35,3 @@ async def tx_session(
 ) -> AsyncGenerator[AsyncSession]:
     async with session_factory() as session, session.begin():
         yield session
-
-
-async def close_db() -> None:
-    await engine.dispose()

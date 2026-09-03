@@ -4,8 +4,8 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.cache import Cache
 from src.exceptions import AlreadyExistsError
+from src.infra.cache import CacheSession
 from src.models.genres import GenreModel
 from src.repository import GenreRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate
@@ -33,10 +33,10 @@ async def test_repo_save_propagates_raw_integrity_error(db_session: AsyncSession
 
 async def test_duplicate_genre_name_raises_already_exists(
     db_session: AsyncSession,
-    cache: Cache,
+    cache_session: CacheSession,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    service = GenreService(GenreRepo(db_session), cache)
+    service = GenreService(GenreRepo(db_session), cache_session)
     await service.create(_genre_payload())
 
     with (
@@ -53,9 +53,9 @@ async def test_duplicate_genre_name_raises_already_exists(
 
 
 async def test_duplicate_username_raises_already_exists(
-    db_session: AsyncSession, cache: Cache
+    db_session: AsyncSession, cache_session: CacheSession
 ) -> None:
-    service = UserService(UserRepo(db_session), cache)
+    service = UserService(UserRepo(db_session), cache_session)
     await service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:
@@ -65,9 +65,9 @@ async def test_duplicate_username_raises_already_exists(
 
 
 async def test_duplicate_email_raises_already_exists(
-    db_session: AsyncSession, cache: Cache
+    db_session: AsyncSession, cache_session: CacheSession
 ) -> None:
-    service = UserService(UserRepo(db_session), cache)
+    service = UserService(UserRepo(db_session), cache_session)
     await service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:

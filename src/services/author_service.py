@@ -11,6 +11,7 @@ from src.services.base import BaseService
 
 class AuthorService(BaseService[AuthorRepo, AuthorModel, AuthorRead]):
     entity_name = 'Author'
+    cache_namespace = 'author'
     read_model = AuthorRead
     load_options = (selectinload(AuthorModel.books),)
 
@@ -23,7 +24,7 @@ class AuthorService(BaseService[AuthorRepo, AuthorModel, AuthorRead]):
         author = await self._get_or_raise(author_id, *self.load_options)
         apply_author_update(author, payload)
         await self.repo.save(author, 'books')
-        self.repo.invalidate_after_commit(self._cache_key(author_id))
+        self.cache.invalidate_after_commit(self._cache_key(author_id))
         return self.read_model.model_validate(author)
 
     async def delete(self, author_id: UUID) -> None:
@@ -32,4 +33,4 @@ class AuthorService(BaseService[AuthorRepo, AuthorModel, AuthorRead]):
         for book in author.books:
             book.is_deleted = True
         await self.repo.save(author)
-        self.repo.invalidate_after_commit(self._cache_key(author_id))
+        self.cache.invalidate_after_commit(self._cache_key(author_id))

@@ -13,10 +13,10 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
-from src.cache import Cache, build_client
-from src.db import readonly_session
-from src.dependencies import get_cache, get_session, get_tx_session, invalidating_tx_session
+from src.infra.cache import Cache, CacheSession, build_client
 from src.models import Base
+
+CACHE_TTL_SECONDS = 60
 
 
 @pytest.fixture(scope='session')
@@ -69,7 +69,12 @@ async def flush_redis(redis_client: Redis) -> AsyncIterator[None]:
 
 @pytest.fixture
 def cache(redis_client: Redis) -> Cache:
-    return Cache(redis_client)
+    return Cache(redis_client, CACHE_TTL_SECONDS)
+
+
+@pytest.fixture
+def cache_session(cache: Cache) -> CacheSession:
+    return CacheSession(cache)
 
 
 @pytest.fixture
@@ -78,27 +83,12 @@ async def client(
     cache: Cache,
 ) -> AsyncIterator[AsyncClient]:
     app = get_app()
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with readonly_session(session_factory) as session:
-            yield session
-
-    async def override_get_tx_session() -> AsyncIterator[AsyncSession]:
-        async with invalidating_tx_session(session_factory, cache) as session:
-            yield session
-
-    def override_get_cache() -> Cache:
-        return cache
-
-    app.dependency_overrides[get_session] = override_get_session
-    app.dependency_overrides[get_tx_session] = override_get_tx_session
-    app.dependency_overrides[get_cache] = override_get_cache
+    app.state.session_factory = session_factory
+    app.state.cache = cache
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test/v1') as ac:
         yield ac
-
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

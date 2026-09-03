@@ -1,44 +1,47 @@
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Annotated
+from collections.abc import AsyncIterator
+from typing import Annotated, cast
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.cache import Cache, cache
-from src.db import SessionFactory, readonly_session, tx_session
+from src.infra.cache import Cache, CacheSession
+from src.infra.db import readonly_session
+from src.infra.unit_of_work import invalidating_tx_session
 from src.repository import AuthorRepo, GenreRepo, UserRepo
-from src.repository.base import pop_invalidation_keys
 from src.services.author_service import AuthorService
 from src.services.genre_service import GenreService
 from src.services.user_service import UserService
 
 
-def get_cache() -> Cache:
-    return cache
+def get_cache(request: Request) -> Cache:
+    return cast('Cache', request.app.state.cache)
+
+
+def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
+    return cast('async_sessionmaker[AsyncSession]', request.app.state.session_factory)
 
 
 CacheDep = Annotated[Cache, Depends(get_cache)]
+SessionFactoryDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
-    async with readonly_session(SessionFactory) as session:
+def get_cache_session(cache: CacheDep) -> CacheSession:
+    return CacheSession(cache)
+
+
+CacheSessionDep = Annotated[CacheSession, Depends(get_cache_session)]
+
+
+async def get_session(session_factory: SessionFactoryDep) -> AsyncIterator[AsyncSession]:
+    async with readonly_session(session_factory) as session:
         yield session
 
 
-@asynccontextmanager
-async def invalidating_tx_session(
-    session_factory: async_sessionmaker[AsyncSession],
-    cache: Cache,
-) -> AsyncGenerator[AsyncSession]:
-    async with tx_session(session_factory) as session:
-        yield session
-    for key in pop_invalidation_keys(session):
-        await cache.delete(key)
-
-
-async def get_tx_session(cache: CacheDep) -> AsyncIterator[AsyncSession]:
-    async with invalidating_tx_session(SessionFactory, cache) as session:
+async def get_tx_session(
+    session_factory: SessionFactoryDep,
+    cache: CacheSessionDep,
+) -> AsyncIterator[AsyncSession]:
+    async with invalidating_tx_session(session_factory, cache) as session:
         yield session
 
 
@@ -78,27 +81,27 @@ UserRepoDep = Annotated[UserRepo, Depends(_user_repo)]
 UserRepoTxDep = Annotated[UserRepo, Depends(_user_repo_tx)]
 
 
-def _author_service(repo: AuthorRepoDep, cache: CacheDep) -> AuthorService:
+def _author_service(repo: AuthorRepoDep, cache: CacheSessionDep) -> AuthorService:
     return AuthorService(repo, cache)
 
 
-def _author_service_tx(repo: AuthorRepoTxDep, cache: CacheDep) -> AuthorService:
+def _author_service_tx(repo: AuthorRepoTxDep, cache: CacheSessionDep) -> AuthorService:
     return AuthorService(repo, cache)
 
 
-def _genre_service(repo: GenreRepoDep, cache: CacheDep) -> GenreService:
+def _genre_service(repo: GenreRepoDep, cache: CacheSessionDep) -> GenreService:
     return GenreService(repo, cache)
 
 
-def _genre_service_tx(repo: GenreRepoTxDep, cache: CacheDep) -> GenreService:
+def _genre_service_tx(repo: GenreRepoTxDep, cache: CacheSessionDep) -> GenreService:
     return GenreService(repo, cache)
 
 
-def _user_service(repo: UserRepoDep, cache: CacheDep) -> UserService:
+def _user_service(repo: UserRepoDep, cache: CacheSessionDep) -> UserService:
     return UserService(repo, cache)
 
 
-def _user_service_tx(repo: UserRepoTxDep, cache: CacheDep) -> UserService:
+def _user_service_tx(repo: UserRepoTxDep, cache: CacheSessionDep) -> UserService:
     return UserService(repo, cache)
 
 

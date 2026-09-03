@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class UserService(BaseService[UserRepo, UserModel, UserRead]):
     entity_name = 'User'
+    cache_namespace = 'user'
     read_model = UserRead
     load_options = (selectinload(UserModel.profile),)
 
@@ -49,7 +50,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
                 raise AlreadyExistsError('User with this email already exists')
         apply_user_update(user, payload)
         await self.repo.save(user)
-        self.repo.invalidate_after_commit(self._cache_key(user_id))
+        self.cache.invalidate_after_commit(self._cache_key(user_id))
         return self.read_model.model_validate(user)
 
     async def delete(self, user_id: UUID) -> None:
@@ -58,4 +59,4 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         if user.profile is not None:
             user.profile.is_deleted = True
         await self.repo.save(user)
-        self.repo.invalidate_after_commit(self._cache_key(user_id))
+        self.cache.invalidate_after_commit(self._cache_key(user_id))
