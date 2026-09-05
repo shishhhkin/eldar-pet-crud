@@ -15,7 +15,11 @@ class Settings(BaseSettings):
 
     redis_host: str
     redis_port: int
+    redis_timeout_seconds: float
+    redis_retries: int
+
     cache_ttl_seconds: int
+    cache_tombstone_ttl_ms: int
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

@@ -3,16 +3,11 @@ from typing import cast
 from uuid import UUID
 
 from redis.asyncio import Redis
-from redis.asyncio.retry import Retry
-from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
-SOCKET_TIMEOUT_SECONDS = 0.5
-
 TOMBSTONE = b'\x00tombstone'
-TOMBSTONE_TTL_MS = 2000
 
 KEY_VERSION = 'v1'
 
@@ -21,20 +16,11 @@ def build_key(namespace: str, obj_id: UUID) -> str:
     return f'{KEY_VERSION}:{namespace}:{obj_id}'
 
 
-def build_client(host: str, port: int) -> Redis:
-    return Redis(
-        host=host,
-        port=port,
-        socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
-        socket_timeout=SOCKET_TIMEOUT_SECONDS,
-        retry=Retry(NoBackoff(), 0),
-    )
-
-
 class Cache:
-    def __init__(self, client: Redis, ttl_seconds: int) -> None:
+    def __init__(self, client: Redis, ttl_seconds: int, tombstone_ttl_ms: int) -> None:
         self.client = client
         self.ttl_seconds = ttl_seconds
+        self.tombstone_ttl_ms = tombstone_ttl_ms
 
     async def get(self, key: str) -> bytes | None:
         try:
@@ -52,7 +38,7 @@ class Cache:
 
     async def tombstone(self, key: str) -> None:
         try:
-            await self.client.set(key, TOMBSTONE, px=TOMBSTONE_TTL_MS)
+            await self.client.set(key, TOMBSTONE, px=self.tombstone_ttl_ms)
         except RedisError:
             logger.error('cache invalidation failed: %s', key, exc_info=True)
 

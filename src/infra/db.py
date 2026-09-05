@@ -2,18 +2,9 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Final
 
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 READONLY_EXECUTION_OPTIONS: Final = {'postgresql_readonly': True}
-
-
-def build_engine(url: str) -> AsyncEngine:
-    return create_async_engine(url, pool_pre_ping=True)
 
 
 def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
