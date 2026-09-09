@@ -23,27 +23,39 @@ def _user_payload(username: str = 'alice', email: str = 'alice@example.com') -> 
     return UserCreate(username=username, email=email, profile=UserProfilePayload())
 
 
-async def test_repo_save_propagates_raw_integrity_error(db_session: AsyncSession) -> None:
-    repo = Repo(db_session, GenreModel)
-    await repo.save(GenreModel(name='нуар'))
+@pytest.fixture
+def genre_repo(db_session: AsyncSession) -> Repo[GenreModel]:
+    return Repo(db_session, GenreModel)
+
+
+@pytest.fixture
+def genre_service(db_session: AsyncSession, cache_session: CacheSession) -> GenreService:
+    return GenreService(GenreRepo(db_session), cache_session)
+
+
+@pytest.fixture
+def user_service(db_session: AsyncSession, cache_session: CacheSession) -> UserService:
+    return UserService(UserRepo(db_session), cache_session)
+
+
+async def test_repo_save_propagates_raw_integrity_error(genre_repo: Repo[GenreModel]) -> None:
+    await genre_repo.save(GenreModel(name='нуар'))
 
     with pytest.raises(IntegrityError):
-        await repo.save(GenreModel(name='нуар'))
+        await genre_repo.save(GenreModel(name='нуар'))
 
 
 async def test_duplicate_genre_name_raises_already_exists(
-    db_session: AsyncSession,
-    cache_session: CacheSession,
+    genre_service: GenreService,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    service = GenreService(GenreRepo(db_session), cache_session)
-    await service.create(_genre_payload())
+    await genre_service.create(_genre_payload())
 
     with (
         caplog.at_level(logging.INFO, logger='src.services.genre_service'),
         pytest.raises(AlreadyExistsError) as excinfo,
     ):
-        await service.create(_genre_payload())
+        await genre_service.create(_genre_payload())
 
     assert str(excinfo.value) == 'Genre with this name already exists'
     records = [record for record in caplog.records if record.name == 'src.services.genre_service']
@@ -52,32 +64,24 @@ async def test_duplicate_genre_name_raises_already_exists(
     assert any('нуар' in record.getMessage() for record in records)
 
 
-async def test_duplicate_username_raises_already_exists(
-    db_session: AsyncSession, cache_session: CacheSession
-) -> None:
-    service = UserService(UserRepo(db_session), cache_session)
-    await service.create(_user_payload())
+async def test_duplicate_username_raises_already_exists(user_service: UserService) -> None:
+    await user_service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:
-        await service.create(_user_payload(email='other@example.com'))
+        await user_service.create(_user_payload(email='other@example.com'))
 
     assert str(excinfo.value) == 'User with this username or email already exists'
 
 
-async def test_duplicate_email_raises_already_exists(
-    db_session: AsyncSession, cache_session: CacheSession
-) -> None:
-    service = UserService(UserRepo(db_session), cache_session)
-    await service.create(_user_payload())
+async def test_duplicate_email_raises_already_exists(user_service: UserService) -> None:
+    await user_service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:
-        await service.create(_user_payload(username='bob'))
+        await user_service.create(_user_payload(username='bob'))
 
     assert str(excinfo.value) == 'User with this username or email already exists'
 
 
-async def test_repo_save_propagates_not_null_violation(db_session: AsyncSession) -> None:
-    repo = Repo(db_session, GenreModel)
-
+async def test_repo_save_propagates_not_null_violation(genre_repo: Repo[GenreModel]) -> None:
     with pytest.raises(IntegrityError):
-        await repo.save(GenreModel())
+        await genre_repo.save(GenreModel())

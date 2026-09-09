@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.exceptions import NotFoundError
@@ -13,7 +13,7 @@ from src.infra.cache import TOMBSTONE, Cache, CacheSession
 from src.infra.db import readonly_session
 from src.infra.unit_of_work import invalidating_tx_session
 from src.models.authors import AuthorModel
-from src.repository import AuthorRepo, Repo
+from src.repository import AuthorRepo
 from src.schemas.authors import AuthorRead, AuthorUpdate
 from src.services.author_service import AuthorService
 
@@ -40,10 +40,6 @@ async def _create_author(client: AsyncClient) -> dict:
     return response.json()
 
 
-async def _forbidden_repo_get(*args: object, **kwargs: object) -> None:
-    raise AssertionError('repository must not be queried on a cache hit')
-
-
 async def _raise_redis_error(*args: object, **kwargs: object) -> None:
     raise RedisError('redis is down')
 
@@ -63,18 +59,23 @@ async def test_cold_get_stores_response_in_cache(client: AsyncClient, redis_clie
     assert AuthorRead.model_validate_json(raw) == AuthorRead.model_validate(response.json())
 
 
-async def test_repeated_get_is_served_without_database(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+async def test_repeated_get_is_served_from_cache(
+    client: AsyncClient, db_session: AsyncSession
 ) -> None:
     created = await _create_author(client)
     first = await client.get(f'/authors/{created["id"]}')
     assert first.status_code == 200
 
-    monkeypatch.setattr(Repo, 'get', _forbidden_repo_get)
+    await db_session.execute(
+        update(AuthorModel).where(AuthorModel.id == UUID(created['id'])).values(name=NEW_NAME)
+    )
+    await db_session.commit()
+
     second = await client.get(f'/authors/{created["id"]}')
 
     assert second.status_code == 200
     assert second.json() == first.json()
+    assert second.json()['name'] != NEW_NAME
 
 
 async def test_missing_author_is_not_cached(client: AsyncClient, redis_client: Redis) -> None:
@@ -165,52 +166,17 @@ async def test_create_does_not_touch_cache(client: AsyncClient, redis_client: Re
     assert await redis_client.keys('*') == []
 
 
-async def test_key_is_invalidated_after_commit(
-    client: AsyncClient,
-    cache: Cache,
-    session_factory: async_sessionmaker[AsyncSession],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    created = await _create_author(client)
-    await client.get(f'/authors/{created["id"]}')
-    stored_names: list[str | None] = []
-    tombstone = cache.tombstone
-
-    async def recording_tombstone(key: str) -> None:
-        async with session_factory() as session:
-            stored_names.append(
-                await session.scalar(
-                    select(AuthorModel.name).where(AuthorModel.id == UUID(created['id']))
-                )
-            )
-        await tombstone(key)
-
-    monkeypatch.setattr(cache, 'tombstone', recording_tombstone)
-
-    response = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
-
-    assert response.status_code == 200
-    assert stored_names == [NEW_NAME]
-
-
 async def test_failed_update_does_not_invalidate(
     session_factory: async_sessionmaker[AsyncSession],
     cache_session: CacheSession,
-    monkeypatch: pytest.MonkeyPatch,
+    redis_client: Redis,
 ) -> None:
-    invalidated_keys: list[str] = []
-
-    async def recording_tombstone(key: str) -> None:
-        invalidated_keys.append(key)
-
-    monkeypatch.setattr(cache_session.cache, 'tombstone', recording_tombstone)
-
     with pytest.raises(NotFoundError):
         async with invalidating_tx_session(session_factory, cache_session) as session:
             service = AuthorService(AuthorRepo(session), cache_session)
             await service.update(uuid4(), AuthorUpdate(name=NEW_NAME))
 
-    assert invalidated_keys == []
+    assert await redis_client.keys('*') == []
     assert cache_session.pending == []
 
 

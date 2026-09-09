@@ -3,6 +3,8 @@ from collections.abc import AsyncIterator, Iterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,10 +15,13 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
-from src.infra.cache import Cache, CacheSession, build_client
+from src.infra.cache import Cache, CacheSession
 from src.models import Base
 
 CACHE_TTL_SECONDS = 60
+TOMBSTONE_TTL_MS = 2000
+INVALIDATION_ATTEMPTS = 3
+REDIS_TIMEOUT_SECONDS = 0.5
 
 
 @pytest.fixture(scope='session')
@@ -53,9 +58,12 @@ def redis_container() -> Iterator[RedisContainer]:
 
 @pytest.fixture(scope='session')
 async def redis_client(redis_container: RedisContainer) -> AsyncIterator[Redis]:
-    client = build_client(
-        redis_container.get_container_host_ip(),
-        int(redis_container.get_exposed_port(6379)),
+    client = Redis(
+        host=redis_container.get_container_host_ip(),
+        port=int(redis_container.get_exposed_port(6379)),
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+        socket_timeout=REDIS_TIMEOUT_SECONDS,
+        retry=Retry(NoBackoff(), 0),
     )
     yield client
     await client.aclose()
@@ -69,7 +77,7 @@ async def flush_redis(redis_client: Redis) -> AsyncIterator[None]:
 
 @pytest.fixture
 def cache(redis_client: Redis) -> Cache:
-    return Cache(redis_client, CACHE_TTL_SECONDS)
+    return Cache(redis_client, CACHE_TTL_SECONDS, TOMBSTONE_TTL_MS, INVALIDATION_ATTEMPTS)
 
 
 @pytest.fixture

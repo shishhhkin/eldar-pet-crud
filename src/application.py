@@ -33,7 +33,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
 
     app.state.session_factory = build_session_factory(engine)
-    app.state.cache = Cache(client, settings.cache_ttl_seconds, settings.cache_tombstone_ttl_ms)
+    app.state.cache = Cache(
+        client,
+        settings.cache_ttl_seconds,
+        settings.cache_tombstone_ttl_ms,
+        settings.cache_invalidation_attempts,
+    )
 
     yield
 
