@@ -5,6 +5,8 @@ from uuid import UUID
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from src.infra.invalidation import InvalidationQueue
+
 logger = logging.getLogger(__name__)
 
 TOMBSTONE = b'\x00tombstone'
@@ -23,13 +25,17 @@ class Cache:
         ttl_seconds: int,
         tombstone_ttl_ms: int,
         invalidation_attempts: int,
+        invalidations: InvalidationQueue,
     ) -> None:
         self.client = client
         self.ttl_seconds = ttl_seconds
         self.tombstone_ttl_ms = tombstone_ttl_ms
         self.invalidation_attempts = invalidation_attempts
+        self.invalidations = invalidations
 
     async def get(self, key: str) -> bytes | None:
+        if self.invalidations.holds(key):
+            return None
         try:
             value = cast('bytes | None', await self.client.get(key))
         except RedisError:
@@ -38,6 +44,8 @@ class Cache:
         return None if value == TOMBSTONE else value
 
     async def add(self, key: str, value: bytes) -> None:
+        if self.invalidations.holds(key):
+            return
         try:
             await self.client.set(key, value, ex=self.ttl_seconds, nx=True)
         except RedisError:
@@ -78,10 +86,8 @@ class CacheSession:
         self.pending.append(key)
 
     async def apply_pending(self) -> None:
-        lost: list[str] = []
         for key in self.pending:
             if not await self.cache.tombstone(key):
-                lost.append(key)
+                self.cache.invalidations.hold(key)
+                logger.warning('cache invalidation deferred: %s', key)
         self.pending.clear()
-        if lost:
-            logger.error('cache invalidation lost: %s', ', '.join(lost))

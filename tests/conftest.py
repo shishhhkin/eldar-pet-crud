@@ -16,12 +16,15 @@ from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
 from src.infra.cache import Cache, CacheSession
+from src.infra.invalidation import InvalidationQueue
 from src.models import Base
 
 CACHE_TTL_SECONDS = 60
 TOMBSTONE_TTL_MS = 2000
 INVALIDATION_ATTEMPTS = 3
 REDIS_TIMEOUT_SECONDS = 0.5
+INVALIDATION_QUEUE_SIZE = 100
+INVALIDATION_RETRY_SECONDS = 0.05
 
 
 @pytest.fixture(scope='session')
@@ -76,8 +79,19 @@ async def flush_redis(redis_client: Redis) -> AsyncIterator[None]:
 
 
 @pytest.fixture
-def cache(redis_client: Redis) -> Cache:
-    return Cache(redis_client, CACHE_TTL_SECONDS, TOMBSTONE_TTL_MS, INVALIDATION_ATTEMPTS)
+def invalidations() -> InvalidationQueue:
+    return InvalidationQueue(INVALIDATION_QUEUE_SIZE, INVALIDATION_RETRY_SECONDS)
+
+
+@pytest.fixture
+def cache(redis_client: Redis, invalidations: InvalidationQueue) -> Cache:
+    return Cache(
+        redis_client,
+        CACHE_TTL_SECONDS,
+        TOMBSTONE_TTL_MS,
+        INVALIDATION_ATTEMPTS,
+        invalidations,
+    )
 
 
 @pytest.fixture

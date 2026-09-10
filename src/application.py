@@ -1,5 +1,6 @@
+import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,7 @@ from src.exceptions.handlers import register_exception_handlers
 from src.healthcheck.router import router as healthcheck_router
 from src.infra.cache import Cache
 from src.infra.db import build_session_factory
+from src.infra.invalidation import InvalidationQueue
 from src.logging_config import setup_logging
 from src.middleware import LoggingMiddleware, RequestIDMiddleware
 
@@ -32,15 +34,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         retry=Retry(NoBackoff(), settings.redis_retries),
     )
 
-    app.state.session_factory = build_session_factory(engine)
-    app.state.cache = Cache(
+    invalidations = InvalidationQueue(
+        settings.cache_invalidation_queue_size,
+        settings.cache_invalidation_retry_seconds,
+    )
+    cache = Cache(
         client,
         settings.cache_ttl_seconds,
         settings.cache_tombstone_ttl_ms,
         settings.cache_invalidation_attempts,
+        invalidations,
     )
 
+    app.state.session_factory = build_session_factory(engine)
+    app.state.cache = cache
+    invalidator = asyncio.create_task(invalidations.run(cache.tombstone))
+
     yield
+
+    invalidator.cancel()
+    with suppress(asyncio.CancelledError):
+        await invalidator
+    await invalidations.close(cache.tombstone)
 
     await client.aclose()
     await engine.dispose()

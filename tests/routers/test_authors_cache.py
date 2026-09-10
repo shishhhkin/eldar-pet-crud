@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.exceptions import NotFoundError
 from src.infra.cache import TOMBSTONE, Cache, CacheSession
 from src.infra.db import readonly_session
+from src.infra.invalidation import InvalidationQueue
 from src.infra.unit_of_work import invalidating_tx_session
 from src.models.authors import AuthorModel
 from src.repository import AuthorRepo
@@ -200,3 +201,36 @@ async def test_concurrent_get_does_not_restore_stale_value(
 
     assert await redis_client.get(key) == TOMBSTONE
     assert await cache_session.get(key) is None
+
+
+async def test_deferred_invalidation_serves_fresh_data_until_redis_returns(
+    client: AsyncClient,
+    cache: Cache,
+    invalidations: InvalidationQueue,
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = await _create_author(client)
+    key = _key(created['id'])
+    assert (await client.get(f'/authors/{created["id"]}')).status_code == 200
+    cached = await redis_client.get(key)
+    assert cached is not None
+
+    monkeypatch.setattr(cache.client, 'set', _raise_redis_error)
+    updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+
+    assert updated.status_code == 200
+    assert invalidations.holds(key)
+    assert await redis_client.get(key) == cached
+
+    response = await client.get(f'/authors/{created["id"]}')
+
+    assert response.status_code == 200
+    assert response.json()['name'] == NEW_NAME
+
+    monkeypatch.undo()
+    await invalidations.drain(cache.tombstone)
+
+    assert not invalidations.holds(key)
+    assert await redis_client.get(key) == TOMBSTONE
+    assert (await client.get(f'/authors/{created["id"]}')).json()['name'] == NEW_NAME
