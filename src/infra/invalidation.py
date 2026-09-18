@@ -1,43 +1,51 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Sequence
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from src.infra.cache import Cache
+from src.infra.db import tx_session
+from src.repository import CacheInvalidationRepo
 
 logger = logging.getLogger(__name__)
 
-type Tombstone = Callable[[str], Awaitable[bool]]
 
-
-class InvalidationQueue:
-    def __init__(self, max_size: int, retry_interval_seconds: float) -> None:
-        self.max_size = max_size
+class InvalidationOutbox:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        cache: Cache,
+        batch_size: int,
+        retry_interval_seconds: float,
+    ) -> None:
+        self.session_factory = session_factory
+        self.cache = cache
+        self.batch_size = batch_size
         self.retry_interval_seconds = retry_interval_seconds
-        self.keys: dict[str, None] = {}
 
-    def hold(self, key: str) -> None:
-        if key not in self.keys and len(self.keys) >= self.max_size:
-            dropped = next(iter(self.keys))
-            del self.keys[dropped]
-            logger.error('cache invalidation dropped, queue is full: %s', dropped)
-        self.keys[key] = None
+    async def flush(self, ids: Sequence[UUID] | None = None) -> None:
+        try:
+            while await self._process_batch(ids):
+                pass
+        except Exception:
+            logger.exception('cache invalidation outbox processing failed')
 
-    def holds(self, key: str) -> bool:
-        return key in self.keys
-
-    def release(self, key: str) -> None:
-        self.keys.pop(key, None)
-
-    async def drain(self, tombstone: Tombstone) -> None:
-        for key in list(self.keys):
-            if not await tombstone(key):
-                return
-            self.release(key)
-
-    async def run(self, tombstone: Tombstone) -> None:
+    async def run(self) -> None:
         while True:
             await asyncio.sleep(self.retry_interval_seconds)
-            await self.drain(tombstone)
+            await self.flush()
 
-    async def close(self, tombstone: Tombstone) -> None:
-        await self.drain(tombstone)
-        if self.keys:
-            logger.error('cache invalidation lost on shutdown: %s', ', '.join(self.keys))
+    async def _process_batch(self, ids: Sequence[UUID] | None) -> bool:
+        async with tx_session(self.session_factory) as session:
+            repo = CacheInvalidationRepo(session)
+            claimed = await repo.claim(self.batch_size, ids)
+            done: list[UUID] = []
+            for invalidation_id, key in claimed:
+                if not await self.cache.tombstone(key):
+                    break
+                done.append(invalidation_id)
+            if done:
+                await repo.delete(done)
+        return len(done) == self.batch_size

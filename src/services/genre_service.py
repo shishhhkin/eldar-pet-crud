@@ -1,8 +1,6 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy.orm import selectinload
-
 from src.exceptions import AlreadyExistsError
 from src.mappers.genres import apply_genre_update
 from src.models.genres import GenreModel
@@ -17,7 +15,6 @@ class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
     entity_name = 'Genre'
     cache_namespace = 'genre'
     read_model = GenreRead
-    load_options = (selectinload(GenreModel.moods),)
 
     async def create(self, payload: GenreCreate) -> GenreRead:
         moods = await self.repo.upsert_moods([mood.name for mood in payload.moods])
@@ -31,7 +28,7 @@ class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
         return self.read_model.model_validate(genre)
 
     async def update(self, genre_id: UUID, payload: GenreUpdate) -> GenreRead:
-        genre = await self._get_or_raise(genre_id, *self.load_options)
+        genre = await self._get_or_raise(genre_id)
         if payload.name is not None:
             await self.repo.advisory_lock('name', payload.name)
             if await self.repo.exists(GenreModel.name == payload.name, GenreModel.id != genre_id):
@@ -41,11 +38,11 @@ class GenreService(BaseService[GenreRepo, GenreModel, GenreRead]):
         if payload.moods is not None:
             genre.moods = list(await self.repo.upsert_moods([mood.name for mood in payload.moods]))
         await self.repo.save(genre, 'moods')
-        self.cache.invalidate_after_commit(self._cache_key(genre_id))
+        await self._invalidate(genre_id)
         return self.read_model.model_validate(genre)
 
     async def delete(self, genre_id: UUID) -> None:
-        genre = await self._get_or_raise(genre_id)
+        genre = await self._get_or_raise(genre_id, with_relations=False)
         genre.is_deleted = True
         await self.repo.save(genre)
-        self.cache.invalidate_after_commit(self._cache_key(genre_id))
+        await self._invalidate(genre_id)

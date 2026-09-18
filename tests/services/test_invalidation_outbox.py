@@ -1,0 +1,265 @@
+import logging
+from collections.abc import AsyncIterator
+from uuid import UUID, uuid4
+
+import pytest
+from httpx import AsyncClient
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from src.infra.cache import TOMBSTONE, Cache
+from src.infra.db import tx_session
+from src.infra.invalidation import InvalidationOutbox
+from src.infra.unit_of_work import invalidating_tx_session
+from src.repository.cache_invalidations import CacheInvalidationRepo, pop_pending_invalidations
+from tests.conftest import (
+    INVALIDATION_BATCH_SIZE,
+    INVALIDATION_RETRY_SECONDS,
+    PauseRedisWrites,
+    closed_port,
+    outbox_keys,
+)
+
+CACHE_LOGGER = 'src.infra.cache'
+OUTBOX_LOGGER = 'src.infra.invalidation'
+NEW_NAME = 'Новое Имя'
+
+
+def _key(author_id: str) -> str:
+    return f'v1:author:{author_id}'
+
+
+async def _create_author(client: AsyncClient) -> dict:
+    response = await client.post(
+        '/authors',
+        json={'name': 'Лев Толстой', 'bio': 'русский писатель', 'books': []},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+async def _add(session_factory: async_sessionmaker[AsyncSession], *keys: str) -> list[UUID]:
+    async with tx_session(session_factory) as session:
+        repo = CacheInvalidationRepo(session)
+        for key in keys:
+            await repo.add(key)
+        return pop_pending_invalidations(session)
+
+
+@pytest.fixture
+async def unreachable_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    engine = create_async_engine(
+        f'postgresql+asyncpg://postgres:postgres@127.0.0.1:{closed_port()}/postgres'
+    )
+    yield async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    await engine.dispose()
+
+
+async def test_update_invalidates_right_after_commit_and_leaves_no_row(
+    client: AsyncClient,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    created = await _create_author(client)
+    assert (await client.get(f'/authors/{created["id"]}')).status_code == 200
+
+    updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+
+    assert updated.status_code == 200
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_delete_invalidates_right_after_commit_and_leaves_no_row(
+    client: AsyncClient,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    created = await _create_author(client)
+
+    deleted = await client.delete(f'/authors/{created["id"]}')
+
+    assert deleted.status_code == 204
+    assert await redis_client.get(_key(created['id'])) == TOMBSTONE
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_update_with_unreachable_redis_keeps_invalidation_in_database(
+    unreachable_client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    created = await _create_author(unreachable_client)
+
+    updated = await unreachable_client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+
+    assert updated.status_code == 200
+    assert updated.json()['name'] == NEW_NAME
+    assert await outbox_keys(session_factory) == [_key(created['id'])]
+
+
+async def test_kept_invalidation_is_applied_once_redis_accepts_writes_again(
+    client: AsyncClient,
+    redis_client: Redis,
+    outbox: InvalidationOutbox,
+    session_factory: async_sessionmaker[AsyncSession],
+    pause_redis_writes: PauseRedisWrites,
+) -> None:
+    created = await _create_author(client)
+    key = _key(created['id'])
+    assert (await client.get(f'/authors/{created["id"]}')).status_code == 200
+    cached = await redis_client.get(key)
+    assert cached is not None
+
+    await pause_redis_writes()
+    updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+
+    assert updated.status_code == 200
+    assert await outbox_keys(session_factory) == [key]
+    assert await redis_client.get(key) == cached
+
+    await redis_client.client_unpause()
+    await outbox.flush()
+
+    assert await outbox_keys(session_factory) == []
+    assert await redis_client.get(key) == TOMBSTONE
+    assert (await client.get(f'/authors/{created["id"]}')).json()['name'] == NEW_NAME
+
+
+async def test_failed_update_leaves_no_invalidation(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    response = await client.patch(f'/authors/{uuid4()}', json={'name': NEW_NAME})
+
+    assert response.status_code == 404
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_rolled_back_transaction_leaves_no_invalidation(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:rolled-back'
+
+    with pytest.raises(RuntimeError):
+        async with invalidating_tx_session(session_factory, outbox) as session:
+            await CacheInvalidationRepo(session).add(key)
+            raise RuntimeError('business failure')
+
+    assert await outbox_keys(session_factory) == []
+    assert await redis_client.exists(key) == 0
+
+
+async def test_flush_applies_every_stored_invalidation(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    keys = ['v1:author:1', 'v1:author:2']
+    await _add(session_factory, *keys)
+
+    await outbox.flush()
+
+    assert [await redis_client.get(key) for key in keys] == [TOMBSTONE, TOMBSTONE]
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_flush_drains_more_than_one_batch(
+    cache: Cache,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    keys = ['v1:author:1', 'v1:author:2', 'v1:author:3']
+    await _add(session_factory, *keys)
+    outbox = InvalidationOutbox(session_factory, cache, 1, INVALIDATION_RETRY_SECONDS)
+
+    await outbox.flush()
+
+    assert [await redis_client.get(key) for key in keys] == [TOMBSTONE] * len(keys)
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_flush_with_ids_applies_only_those_invalidations(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    [own_id] = await _add(session_factory, 'v1:author:own')
+    await _add(session_factory, 'v1:author:foreign')
+
+    await outbox.flush([own_id])
+
+    assert await redis_client.get('v1:author:own') == TOMBSTONE
+    assert await redis_client.exists('v1:author:foreign') == 0
+    assert await outbox_keys(session_factory) == ['v1:author:foreign']
+
+
+async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failure(
+    unreachable_cache: Cache,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    keys = ['v1:author:1', 'v1:author:2']
+    await _add(session_factory, *keys)
+    outbox = InvalidationOutbox(
+        session_factory, unreachable_cache, INVALIDATION_BATCH_SIZE, INVALIDATION_RETRY_SECONDS
+    )
+
+    with caplog.at_level(logging.WARNING, logger=CACHE_LOGGER):
+        await outbox.flush()
+
+    assert await outbox_keys(session_factory) == keys
+    assert len([record for record in caplog.records if record.name == CACHE_LOGGER]) == 1
+
+
+async def test_flush_with_unreachable_database_logs_and_does_not_raise(
+    cache: Cache,
+    unreachable_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    outbox = InvalidationOutbox(
+        unreachable_session_factory, cache, INVALIDATION_BATCH_SIZE, INVALIDATION_RETRY_SECONDS
+    )
+
+    with caplog.at_level(logging.ERROR, logger=OUTBOX_LOGGER):
+        await outbox.flush()
+
+    records = [record for record in caplog.records if record.name == OUTBOX_LOGGER]
+    assert len(records) == 1
+    assert records[0].levelno == logging.ERROR
+
+
+async def test_claim_skips_rows_locked_by_another_processor(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _add(session_factory, 'v1:author:1', 'v1:author:2')
+
+    async with tx_session(session_factory) as first, tx_session(session_factory) as second:
+        claimed_by_first = await CacheInvalidationRepo(first).claim(INVALIDATION_BATCH_SIZE)
+        claimed_by_second = await CacheInvalidationRepo(second).claim(INVALIDATION_BATCH_SIZE)
+
+    assert [key for _, key in claimed_by_first] == ['v1:author:1', 'v1:author:2']
+    assert claimed_by_second == []
+
+
+async def test_invalidation_stored_after_claim_survives_delete_of_claimed_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:1'
+    await _add(session_factory, key)
+
+    async with tx_session(session_factory) as session:
+        repo = CacheInvalidationRepo(session)
+        claimed = await repo.claim(INVALIDATION_BATCH_SIZE)
+        [later_id] = await _add(session_factory, key)
+        await repo.delete([invalidation_id for invalidation_id, _ in claimed])
+
+    async with tx_session(session_factory) as session:
+        remaining = await CacheInvalidationRepo(session).claim(INVALIDATION_BATCH_SIZE)
+
+    assert [invalidation_id for invalidation_id, _ in remaining] == [later_id]

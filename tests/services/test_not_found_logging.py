@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import NotFoundError
-from src.infra.cache import CacheSession
+from src.infra.cache import Cache
 from src.repository import AuthorRepo, GenreRepo, UserRepo
 from src.services.author_service import AuthorService
 from src.services.genre_service import GenreService
@@ -23,13 +23,13 @@ CASES = [
 @pytest.mark.parametrize(('service_cls', 'repo_cls', 'entity'), CASES)
 async def test_get_missing_raises_not_found_and_logs(
     db_session: AsyncSession,
-    cache_session: CacheSession,
+    cache: Cache,
     caplog: pytest.LogCaptureFixture,
     service_cls: type,
     repo_cls: type,
     entity: str,
 ) -> None:
-    service = service_cls(repo_cls(db_session), cache_session)
+    service = service_cls(repo_cls(db_session), cache)
     missing_id = uuid4()
 
     with (

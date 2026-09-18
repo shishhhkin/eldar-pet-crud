@@ -1,12 +1,14 @@
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infra.cache import TOMBSTONE
-from src.repository import Repo
+from src.models.genres import GenreModel
 from src.schemas.genres import GenreRead
 
 SERVICE_LOGGER = 'src.services.base'
@@ -27,10 +29,6 @@ async def _create_genre(client: AsyncClient) -> dict:
     return response.json()
 
 
-async def _forbidden_repo_get(*args: object, **kwargs: object) -> None:
-    raise AssertionError('repository must not be queried on a cache hit')
-
-
 async def test_cold_get_stores_response_in_cache(client: AsyncClient, redis_client: Redis) -> None:
     created = await _create_genre(client)
 
@@ -44,14 +42,18 @@ async def test_cold_get_stores_response_in_cache(client: AsyncClient, redis_clie
     assert [mood.name for mood in cached.moods] == ['грусть', 'надежда']
 
 
-async def test_repeated_get_is_served_without_database(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+async def test_repeated_get_is_served_from_cache(
+    client: AsyncClient, db_session: AsyncSession
 ) -> None:
     created = await _create_genre(client)
     first = await client.get(f'/genres/{created["id"]}')
     assert first.status_code == 200
 
-    monkeypatch.setattr(Repo, 'get', _forbidden_repo_get)
+    await db_session.execute(
+        update(GenreModel).where(GenreModel.id == UUID(created['id'])).values(name=NEW_NAME)
+    )
+    await db_session.commit()
+
     second = await client.get(f'/genres/{created["id"]}')
 
     assert second.status_code == 200

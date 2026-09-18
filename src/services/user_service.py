@@ -1,8 +1,6 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy.orm import selectinload
-
 from src.exceptions import AlreadyExistsError
 from src.mappers.users import apply_user_update, to_user_profile_model
 from src.models.users import UserModel
@@ -17,7 +15,6 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
     entity_name = 'User'
     cache_namespace = 'user'
     read_model = UserRead
-    load_options = (selectinload(UserModel.profile),)
 
     async def create(self, payload: UserCreate) -> UserRead:
         await self.repo.advisory_lock('username', payload.username)
@@ -35,7 +32,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         return self.read_model.model_validate(user)
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:
-        user = await self._get_or_raise(user_id, *self.load_options)
+        user = await self._get_or_raise(user_id)
         if payload.username is not None:
             await self.repo.advisory_lock('username', payload.username)
             if await self.repo.exists(
@@ -50,13 +47,13 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
                 raise AlreadyExistsError('User with this email already exists')
         apply_user_update(user, payload)
         await self.repo.save(user)
-        self.cache.invalidate_after_commit(self._cache_key(user_id))
+        await self._invalidate(user_id)
         return self.read_model.model_validate(user)
 
     async def delete(self, user_id: UUID) -> None:
-        user = await self._get_or_raise(user_id, *self.load_options)
+        user = await self._get_or_raise(user_id)
         user.is_deleted = True
         if user.profile is not None:
             user.profile.is_deleted = True
         await self.repo.save(user)
-        self.cache.invalidate_after_commit(self._cache_key(user_id))
+        await self._invalidate(user_id)

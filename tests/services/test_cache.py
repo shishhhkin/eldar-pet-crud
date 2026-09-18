@@ -1,25 +1,14 @@
 import asyncio
 import logging
-import socket
 import time
-from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
-from redis.asyncio.retry import Retry
-from redis.backoff import NoBackoff
-from redis.exceptions import RedisError
 
 from src.infra import cache as cache_module
-from src.infra.cache import TOMBSTONE, Cache, CacheSession, build_key
-from src.infra.invalidation import InvalidationQueue
-from tests.conftest import (
-    CACHE_TTL_SECONDS,
-    INVALIDATION_ATTEMPTS,
-    REDIS_TIMEOUT_SECONDS,
-    TOMBSTONE_TTL_MS,
-)
+from src.infra.cache import TOMBSTONE, Cache, build_key
+from tests.conftest import CACHE_TTL_SECONDS, TOMBSTONE_TTL_MS, PauseRedisWrites
 
 LOGGER_NAME = 'src.infra.cache'
 
@@ -28,42 +17,13 @@ EXPIRED_TOMBSTONE_TTL_MS = 50
 CONFIGURED_TOMBSTONE_TTL_MS = 5000
 
 
-async def _raise_redis_error(*args: object, **kwargs: object) -> None:
-    raise RedisError('redis is down')
-
-
 def _records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [record for record in caplog.records if record.name == LOGGER_NAME]
 
 
-def _closed_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1', 0))
-        return int(sock.getsockname()[1])
-
-
-@pytest.fixture
-def short_tombstone_cache(redis_client: Redis, invalidations: InvalidationQueue) -> Cache:
-    return Cache(
-        redis_client,
-        CACHE_TTL_SECONDS,
-        EXPIRED_TOMBSTONE_TTL_MS,
-        INVALIDATION_ATTEMPTS,
-        invalidations,
-    )
-
-
-@pytest.fixture
-async def unreachable_cache(invalidations: InvalidationQueue) -> AsyncIterator[Cache]:
-    client = Redis(
-        host='127.0.0.1',
-        port=_closed_port(),
-        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
-        socket_timeout=REDIS_TIMEOUT_SECONDS,
-        retry=Retry(NoBackoff(), 0),
-    )
-    yield Cache(client, CACHE_TTL_SECONDS, TOMBSTONE_TTL_MS, INVALIDATION_ATTEMPTS, invalidations)
-    await client.aclose()
+def _only_warnings(caplog: pytest.LogCaptureFixture) -> bool:
+    records = _records(caplog)
+    return bool(records) and all(record.levelno == logging.WARNING for record in records)
 
 
 def test_build_key_joins_version_namespace_and_id() -> None:
@@ -92,11 +52,9 @@ async def test_add_stores_value_with_ttl(cache: Cache, redis_client: Redis) -> N
     assert await redis_client.ttl(key) == CACHE_TTL_SECONDS
 
 
-async def test_add_ttl_follows_configured_value(
-    redis_client: Redis, invalidations: InvalidationQueue
-) -> None:
+async def test_add_ttl_follows_configured_value(redis_client: Redis) -> None:
     key = 'v1:author:ttl'
-    cache = Cache(redis_client, 42, TOMBSTONE_TTL_MS, INVALIDATION_ATTEMPTS, invalidations)
+    cache = Cache(redis_client, 42, TOMBSTONE_TTL_MS)
 
     await cache.add(key, b'{}')
 
@@ -116,7 +74,7 @@ async def test_tombstone_replaces_cached_value(cache: Cache, redis_client: Redis
     key = 'v1:author:invalidated'
     await cache.add(key, b'{}')
 
-    await cache.tombstone(key)
+    assert await cache.tombstone(key) is True
 
     assert await redis_client.get(key) == TOMBSTONE
     assert await cache.get(key) is None
@@ -140,17 +98,9 @@ async def test_add_does_not_overwrite_live_tombstone(cache: Cache, redis_client:
     assert await cache.get(key) is None
 
 
-async def test_tombstone_ttl_follows_configured_value(
-    redis_client: Redis, invalidations: InvalidationQueue
-) -> None:
+async def test_tombstone_ttl_follows_configured_value(redis_client: Redis) -> None:
     key = 'v1:author:tombstone-ttl'
-    cache = Cache(
-        redis_client,
-        CACHE_TTL_SECONDS,
-        CONFIGURED_TOMBSTONE_TTL_MS,
-        INVALIDATION_ATTEMPTS,
-        invalidations,
-    )
+    cache = Cache(redis_client, CACHE_TTL_SECONDS, CONFIGURED_TOMBSTONE_TTL_MS)
 
     await cache.tombstone(key)
 
@@ -158,47 +108,15 @@ async def test_tombstone_ttl_follows_configured_value(
     assert CONFIGURED_TOMBSTONE_TTL_MS - 1000 < pttl <= CONFIGURED_TOMBSTONE_TTL_MS
 
 
-async def test_add_fills_key_once_tombstone_expires(short_tombstone_cache: Cache) -> None:
+async def test_add_fills_key_once_tombstone_expires(redis_client: Redis) -> None:
     key = 'v1:author:expired'
-    await short_tombstone_cache.tombstone(key)
+    cache = Cache(redis_client, CACHE_TTL_SECONDS, EXPIRED_TOMBSTONE_TTL_MS)
+    await cache.tombstone(key)
     await asyncio.sleep(EXPIRED_TOMBSTONE_TTL_MS / 1000 * 2)
-
-    await short_tombstone_cache.add(key, b'{"fresh": true}')
-
-    assert await short_tombstone_cache.get(key) == b'{"fresh": true}'
-
-
-async def test_get_skips_redis_for_held_key(
-    cache: Cache, invalidations: InvalidationQueue, redis_client: Redis
-) -> None:
-    key = 'v1:author:held'
-    await redis_client.set(key, b'{"stale": true}')
-    invalidations.hold(key)
-
-    assert await cache.get(key) is None
-
-
-async def test_add_does_not_write_held_key(
-    cache: Cache, invalidations: InvalidationQueue, redis_client: Redis
-) -> None:
-    key = 'v1:author:held'
-    invalidations.hold(key)
 
     await cache.add(key, b'{"fresh": true}')
 
-    assert await redis_client.get(key) is None
-
-
-async def test_get_reads_redis_again_once_key_is_released(
-    cache: Cache, invalidations: InvalidationQueue, redis_client: Redis
-) -> None:
-    key = 'v1:author:held'
-    await redis_client.set(key, b'{"stale": true}')
-    invalidations.hold(key)
-
-    invalidations.release(key)
-
-    assert await cache.get(key) == b'{"stale": true}'
+    assert await cache.get(key) == b'{"fresh": true}'
 
 
 async def test_delete_removes_key(cache: Cache, redis_client: Redis) -> None:
@@ -210,41 +128,7 @@ async def test_delete_removes_key(cache: Cache, redis_client: Redis) -> None:
     assert await redis_client.exists(key) == 0
 
 
-async def test_get_on_redis_error_returns_none_and_warns(
-    cache: Cache,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.setattr(cache.client, 'get', _raise_redis_error)
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        assert await cache.get('v1:author:broken') is None
-
-    records = _records(caplog)
-    assert records
-    assert all(record.levelno == logging.WARNING for record in records)
-
-
-async def test_add_on_redis_error_is_swallowed_and_warns(
-    cache: Cache,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    key = 'v1:author:broken'
-    monkeypatch.setattr(cache.client, 'set', _raise_redis_error)
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        await cache.add(key, b'{}')
-
-    monkeypatch.undo()
-    assert await cache.get(key) is None
-
-    records = _records(caplog)
-    assert records
-    assert all(record.levelno == logging.WARNING for record in records)
-
-
-async def test_get_on_unreachable_redis_fails_fast(
+async def test_get_on_unreachable_redis_fails_fast_and_warns(
     unreachable_cache: Cache, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
@@ -254,173 +138,57 @@ async def test_get_on_unreachable_redis_fails_fast(
 
     assert result is None
     assert elapsed < UNREACHABLE_TIMEOUT_SECONDS
-    assert _records(caplog)
+    assert _only_warnings(caplog)
 
 
-async def test_tombstone_reports_success(cache: Cache) -> None:
-    assert await cache.tombstone('v1:author:invalidated') is True
-
-
-async def test_tombstone_on_redis_error_reports_failure_and_warns(
-    cache: Cache,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
+async def test_add_on_unreachable_redis_is_swallowed_and_warns(
+    unreachable_cache: Cache, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(cache.client, 'set', _raise_redis_error)
-
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        assert await cache.tombstone('v1:author:broken') is False
+        await unreachable_cache.add('v1:author:unreachable', b'{}')
 
-    records = _records(caplog)
-    assert len(records) == INVALIDATION_ATTEMPTS
-    assert all(record.levelno == logging.WARNING for record in records)
+    assert _only_warnings(caplog)
 
 
-async def test_tombstone_retries_until_redis_answers(
-    cache: Cache, redis_client: Redis, monkeypatch: pytest.MonkeyPatch
+async def test_delete_on_unreachable_redis_is_swallowed_and_warns(
+    unreachable_cache: Cache, caplog: pytest.LogCaptureFixture
 ) -> None:
-    key = 'v1:author:flaky'
-    working_set = cache.client.set
-    attempts = 0
-
-    async def failing_once_set(*args: object, **kwargs: object) -> object:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise RedisError('redis is down')
-        return await working_set(*args, **kwargs)
-
-    monkeypatch.setattr(cache.client, 'set', failing_once_set)
-
-    assert await cache.tombstone(key) is True
-    assert attempts == 2
-    assert await redis_client.get(key) == TOMBSTONE
-
-
-async def test_tombstone_gives_up_after_configured_attempts(
-    redis_client: Redis, invalidations: InvalidationQueue, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    cache = Cache(redis_client, CACHE_TTL_SECONDS, TOMBSTONE_TTL_MS, 1, invalidations)
-    attempts = 0
-
-    async def counting_failing_set(*args: object, **kwargs: object) -> None:
-        nonlocal attempts
-        attempts += 1
-        raise RedisError('redis is down')
-
-    monkeypatch.setattr(cache.client, 'set', counting_failing_set)
-
-    assert await cache.tombstone('v1:author:broken') is False
-    assert attempts == 1
-
-
-async def test_delete_on_redis_error_is_swallowed_and_warns(
-    cache: Cache,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    monkeypatch.setattr(cache.client, 'delete', _raise_redis_error)
-
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        await cache.delete('v1:author:broken')
+        await unreachable_cache.delete('v1:author:unreachable')
 
-    records = _records(caplog)
-    assert records
-    assert all(record.levelno == logging.WARNING for record in records)
+    assert _only_warnings(caplog)
 
 
-async def test_scheduled_key_is_not_invalidated_before_apply(
-    cache_session: CacheSession, redis_client: Redis
+async def test_tombstone_on_unreachable_redis_reports_failure_once(
+    unreachable_cache: Cache, caplog: pytest.LogCaptureFixture
 ) -> None:
-    key = 'v1:author:deferred'
-    await cache_session.add(key, b'{}')
+    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+        assert await unreachable_cache.tombstone('v1:author:unreachable') is False
 
-    cache_session.invalidate_after_commit(key)
-
-    assert await redis_client.get(key) == b'{}'
-    assert cache_session.pending == [key]
+    assert _only_warnings(caplog)
+    assert len(_records(caplog)) == 1
 
 
-async def test_apply_pending_tombstones_every_scheduled_key(
-    cache_session: CacheSession, redis_client: Redis
+async def test_add_while_redis_rejects_writes_keeps_key_absent(
+    cache: Cache, redis_client: Redis, pause_redis_writes: PauseRedisWrites
 ) -> None:
-    keys = ['v1:author:1', 'v1:author:2']
-    for key in keys:
-        cache_session.invalidate_after_commit(key)
+    key = 'v1:author:paused'
+    await pause_redis_writes()
 
-    await cache_session.apply_pending()
-
-    assert [await redis_client.get(key) for key in keys] == [TOMBSTONE, TOMBSTONE]
-    assert cache_session.pending == []
-
-
-async def test_apply_pending_holds_lost_invalidation_in_queue(
-    cache_session: CacheSession,
-    invalidations: InvalidationQueue,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    key = 'v1:author:lost'
-    monkeypatch.setattr(cache_session.cache.client, 'set', _raise_redis_error)
-    cache_session.invalidate_after_commit(key)
-
-    with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
-        await cache_session.apply_pending()
-
-    assert invalidations.holds(key)
-    assert cache_session.pending == []
-    assert [record for record in _records(caplog) if record.levelno == logging.ERROR] == []
-
-
-async def test_apply_pending_holds_only_keys_that_were_not_invalidated(
-    cache_session: CacheSession,
-    invalidations: InvalidationQueue,
-    redis_client: Redis,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lost_key = 'v1:author:lost'
-    kept_key = 'v1:author:kept'
-    working_set = cache_session.cache.client.set
-
-    async def set_failing_for_lost_key(key: str, *args: object, **kwargs: object) -> object:
-        if key == lost_key:
-            raise RedisError('redis is down')
-        return await working_set(key, *args, **kwargs)
-
-    monkeypatch.setattr(cache_session.cache.client, 'set', set_failing_for_lost_key)
-    cache_session.invalidate_after_commit(lost_key)
-    cache_session.invalidate_after_commit(kept_key)
-
-    await cache_session.apply_pending()
-
-    assert invalidations.holds(lost_key)
-    assert not invalidations.holds(kept_key)
-    assert await redis_client.get(kept_key) == TOMBSTONE
-    assert await redis_client.get(lost_key) is None
-
-
-async def test_apply_pending_leaves_queue_empty_when_every_key_is_invalidated(
-    cache_session: CacheSession,
-    invalidations: InvalidationQueue,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    cache_session.invalidate_after_commit('v1:author:fine')
-
-    with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
-        await cache_session.apply_pending()
-
-    assert invalidations.keys == {}
-    assert [record for record in _records(caplog) if record.levelno == logging.ERROR] == []
-
-
-async def test_repeated_apply_pending_does_nothing(
-    cache_session: CacheSession, redis_client: Redis
-) -> None:
-    key = 'v1:author:drained'
-    cache_session.invalidate_after_commit(key)
-    await cache_session.apply_pending()
-    await redis_client.delete(key)
-
-    await cache_session.apply_pending()
+    await cache.add(key, b'{}')
+    await redis_client.client_unpause()
 
     assert await redis_client.exists(key) == 0
+
+
+async def test_tombstone_while_redis_rejects_writes_keeps_cached_value(
+    cache: Cache, redis_client: Redis, pause_redis_writes: PauseRedisWrites
+) -> None:
+    key = 'v1:author:paused'
+    await cache.add(key, b'{"cached": true}')
+    await pause_redis_writes()
+
+    assert await cache.tombstone(key) is False
+    await redis_client.client_unpause()
+
+    assert await cache.get(key) == b'{"cached": true}'

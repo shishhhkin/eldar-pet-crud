@@ -4,19 +4,15 @@ from uuid import UUID, uuid4
 import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.exceptions import NotFoundError
-from src.infra.cache import TOMBSTONE, Cache, CacheSession
+from src.infra.cache import TOMBSTONE, Cache
 from src.infra.db import readonly_session
-from src.infra.invalidation import InvalidationQueue
-from src.infra.unit_of_work import invalidating_tx_session
 from src.models.authors import AuthorModel
 from src.repository import AuthorRepo
-from src.schemas.authors import AuthorRead, AuthorUpdate
-from src.services.author_service import AuthorService
+from src.schemas.authors import AuthorRead
+from tests.conftest import outbox_keys
 
 CACHE_LOGGER = 'src.infra.cache'
 SERVICE_LOGGER = 'src.services.base'
@@ -39,10 +35,6 @@ async def _create_author(client: AsyncClient) -> dict:
     response = await client.post('/authors', json=_payload())
     assert response.status_code == 201
     return response.json()
-
-
-async def _raise_redis_error(*args: object, **kwargs: object) -> None:
-    raise RedisError('redis is down')
 
 
 def _records(caplog: pytest.LogCaptureFixture, logger_name: str) -> list[logging.LogRecord]:
@@ -89,18 +81,14 @@ async def test_missing_author_is_not_cached(client: AsyncClient, redis_client: R
     assert await redis_client.keys('v1:author:*') == []
 
 
-async def test_get_falls_back_to_database_when_redis_fails(
-    client: AsyncClient,
-    cache: Cache,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_get_falls_back_to_database_when_redis_is_unreachable(
+    unreachable_client: AsyncClient,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    created = await _create_author(client)
-    monkeypatch.setattr(cache.client, 'get', _raise_redis_error)
-    monkeypatch.setattr(cache.client, 'set', _raise_redis_error)
+    created = await _create_author(unreachable_client)
 
     with caplog.at_level(logging.WARNING, logger=CACHE_LOGGER):
-        response = await client.get(f'/authors/{created["id"]}')
+        response = await unreachable_client.get(f'/authors/{created["id"]}')
 
     assert response.status_code == 200
     assert response.json() == created
@@ -168,22 +156,20 @@ async def test_create_does_not_touch_cache(client: AsyncClient, redis_client: Re
 
 
 async def test_failed_update_does_not_invalidate(
-    session_factory: async_sessionmaker[AsyncSession],
-    cache_session: CacheSession,
+    client: AsyncClient,
     redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    with pytest.raises(NotFoundError):
-        async with invalidating_tx_session(session_factory, cache_session) as session:
-            service = AuthorService(AuthorRepo(session), cache_session)
-            await service.update(uuid4(), AuthorUpdate(name=NEW_NAME))
+    response = await client.patch(f'/authors/{uuid4()}', json={'name': NEW_NAME})
 
+    assert response.status_code == 404
     assert await redis_client.keys('*') == []
-    assert cache_session.pending == []
+    assert await outbox_keys(session_factory) == []
 
 
 async def test_concurrent_get_does_not_restore_stale_value(
     client: AsyncClient,
-    cache_session: CacheSession,
+    cache: Cache,
     session_factory: async_sessionmaker[AsyncSession],
     redis_client: Redis,
 ) -> None:
@@ -191,46 +177,13 @@ async def test_concurrent_get_does_not_restore_stale_value(
     key = _key(created['id'])
 
     async with readonly_session(session_factory) as session:
-        stale = await AuthorRepo(session).get(UUID(created['id']), *AuthorService.load_options)
+        stale = await AuthorRepo(session).get_with_relations(UUID(created['id']))
         stale_payload = AuthorRead.model_validate(stale).model_dump_json().encode()
 
     updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
     assert updated.status_code == 200
 
-    await cache_session.add(key, stale_payload)
+    await cache.add(key, stale_payload)
 
     assert await redis_client.get(key) == TOMBSTONE
-    assert await cache_session.get(key) is None
-
-
-async def test_deferred_invalidation_serves_fresh_data_until_redis_returns(
-    client: AsyncClient,
-    cache: Cache,
-    invalidations: InvalidationQueue,
-    redis_client: Redis,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    created = await _create_author(client)
-    key = _key(created['id'])
-    assert (await client.get(f'/authors/{created["id"]}')).status_code == 200
-    cached = await redis_client.get(key)
-    assert cached is not None
-
-    monkeypatch.setattr(cache.client, 'set', _raise_redis_error)
-    updated = await client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
-
-    assert updated.status_code == 200
-    assert invalidations.holds(key)
-    assert await redis_client.get(key) == cached
-
-    response = await client.get(f'/authors/{created["id"]}')
-
-    assert response.status_code == 200
-    assert response.json()['name'] == NEW_NAME
-
-    monkeypatch.undo()
-    await invalidations.drain(cache.tombstone)
-
-    assert not invalidations.holds(key)
-    assert await redis_client.get(key) == TOMBSTONE
-    assert (await client.get(f'/authors/{created["id"]}')).json()['name'] == NEW_NAME
+    assert await cache.get(key) is None

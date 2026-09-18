@@ -1,155 +1,131 @@
 import asyncio
-from typing import Any
+from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 
-from src import application
-from src.application import lifespan
-from src.config import Settings
+from src.application import get_app
+from src.infra.cache import TOMBSTONE
+from src.infra.db import tx_session
+from src.repository import CacheInvalidationRepo
+from tests.conftest import PauseRedisWrites, outbox_keys
 
-DRAIN_TIMEOUT_SECONDS = 2.0
-FAST_RETRY_SECONDS = '0.01'
-
-
-class _Recorder:
-    def __init__(self) -> None:
-        self.closed = False
-        self.kwargs: dict[str, Any] = {}
-        self.sets: list[str] = []
-
-    def capture(self, **kwargs: object) -> _Recorder:
-        self.kwargs = kwargs
-        return self
-
-    async def set(self, key: str, *args: object, **kwargs: object) -> None:
-        self.sets.append(key)
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-    async def dispose(self) -> None:
-        self.closed = True
+FAST_RETRY_SECONDS = 0.05
+WAIT_TIMEOUT_SECONDS = 5.0
+SHUTDOWN_TIMEOUT_SECONDS = 2.0
+NEW_NAME = 'Новое Имя'
 
 
-@pytest.fixture
-def settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
-
-
-@pytest.fixture
-def engine_recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
-    recorder = _Recorder()
-    monkeypatch.setattr(
-        application,
-        'create_async_engine',
-        lambda url, **kwargs: recorder.capture(url=url, **kwargs),
-    )
-    return recorder
-
-
-@pytest.fixture
-def redis_recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
-    recorder = _Recorder()
-    monkeypatch.setattr(application, 'Redis', lambda **kwargs: recorder.capture(**kwargs))
-    return recorder
-
-
-async def test_startup_publishes_resources_on_app_state(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
-    settings: Settings,
-) -> None:
-    app = FastAPI()
-
-    async with lifespan(app):
-        assert app.state.session_factory.kw['bind'] is engine_recorder
-        assert app.state.cache.client is redis_recorder
-        assert app.state.cache.ttl_seconds == settings.cache_ttl_seconds
-        assert app.state.cache.tombstone_ttl_ms == settings.cache_tombstone_ttl_ms
-        assert app.state.cache.invalidation_attempts == settings.cache_invalidation_attempts
-
-        invalidations = app.state.cache.invalidations
-        assert invalidations.max_size == settings.cache_invalidation_queue_size
-        assert invalidations.retry_interval_seconds == settings.cache_invalidation_retry_seconds
-
-
-async def test_startup_builds_engine_from_settings(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
-    settings: Settings,
-) -> None:
-    async with lifespan(FastAPI()):
-        assert engine_recorder.kwargs['url'] == str(settings.postgres_url)
-
-
-async def test_startup_builds_redis_client_from_settings(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
-    settings: Settings,
-) -> None:
-    async with lifespan(FastAPI()):
-        assert redis_recorder.kwargs['host'] == settings.redis_host
-        assert redis_recorder.kwargs['port'] == settings.redis_port
-        assert redis_recorder.kwargs['socket_connect_timeout'] == settings.redis_timeout_seconds
-        assert redis_recorder.kwargs['socket_timeout'] == settings.redis_timeout_seconds
-
-
-async def test_startup_passes_configured_retries_to_redis_client(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
+@pytest.fixture(autouse=True)
+def containers_env(
     monkeypatch: pytest.MonkeyPatch,
+    postgres_container: PostgresContainer,
+    redis_container: RedisContainer,
 ) -> None:
-    retries = 7
-    monkeypatch.setenv('redis_retries', str(retries))
+    monkeypatch.setenv('postgres_user', postgres_container.username)
+    monkeypatch.setenv('postgres_password', postgres_container.password)
+    monkeypatch.setenv('postgres_host', postgres_container.get_container_host_ip())
+    monkeypatch.setenv('postgres_port', str(postgres_container.get_exposed_port(5432)))
+    monkeypatch.setenv('postgres_db', postgres_container.dbname)
+    monkeypatch.setenv('redis_host', redis_container.get_container_host_ip())
+    monkeypatch.setenv('redis_port', str(redis_container.get_exposed_port(6379)))
+    monkeypatch.setenv('cache_invalidation_retry_seconds', str(FAST_RETRY_SECONDS))
 
-    async with lifespan(FastAPI()):
-        assert redis_recorder.kwargs['retry'].get_retries() == retries
+
+@pytest.fixture
+def app() -> FastAPI:
+    return get_app()
 
 
-async def test_shutdown_closes_redis_and_engine(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
+@pytest.fixture
+async def running_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url='http://test/v1') as client:
+            yield client
+
+
+async def _wait_until_outbox_is_empty(
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    async with lifespan(FastAPI()):
-        assert not engine_recorder.closed
-        assert not redis_recorder.closed
-
-    assert engine_recorder.closed
-    assert redis_recorder.closed
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        while await outbox_keys(session_factory):
+            await asyncio.sleep(FAST_RETRY_SECONDS)
 
 
-def _invalidator_tasks() -> list[asyncio.Task[None]]:
-    return [
-        task
-        for task in asyncio.all_tasks()
-        if task.get_coro().__qualname__ == 'InvalidationQueue.run'  # type: ignore[union-attr]
-    ]
+async def _create_author(client: AsyncClient) -> dict:
+    response = await client.post('/authors', json={'name': 'Лев Толстой', 'books': []})
+    assert response.status_code == 201
+    return response.json()
 
 
-async def test_startup_runs_invalidator_and_stops_it_on_shutdown(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
+async def test_started_app_serves_and_caches_requests(
+    running_client: AsyncClient, redis_client: Redis
 ) -> None:
-    async with lifespan(FastAPI()):
-        assert len(_invalidator_tasks()) == 1
+    created = await _create_author(running_client)
 
-    assert _invalidator_tasks() == []
+    response = await running_client.get(f'/authors/{created["id"]}')
+
+    assert response.status_code == 200
+    assert response.json() == created
+    assert await redis_client.get(f'v1:author:{created["id"]}') is not None
 
 
-async def test_invalidator_drains_held_keys_through_the_cache(
-    engine_recorder: _Recorder,
-    redis_recorder: _Recorder,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_invalidation_stored_before_startup_is_applied_after_start(
+    app: FastAPI,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    monkeypatch.setenv('cache_invalidation_retry_seconds', FAST_RETRY_SECONDS)
-    key = 'v1:author:queued'
-    app = FastAPI()
+    key = f'v1:author:{uuid4()}'
+    await redis_client.set(key, b'{"stale": true}')
+    async with tx_session(session_factory) as session:
+        await CacheInvalidationRepo(session).add(key)
 
-    async with lifespan(app):
-        app.state.cache.invalidations.hold(key)
-        async with asyncio.timeout(DRAIN_TIMEOUT_SECONDS):
-            while app.state.cache.invalidations.holds(key):
-                await asyncio.sleep(float(FAST_RETRY_SECONDS))
+    async with app.router.lifespan_context(app):
+        await _wait_until_outbox_is_empty(session_factory)
 
-    assert redis_recorder.sets == [key]
+    assert await redis_client.get(key) == TOMBSTONE
+
+
+async def test_worker_applies_invalidation_once_redis_accepts_writes(
+    running_client: AsyncClient,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    pause_redis_writes: PauseRedisWrites,
+) -> None:
+    created = await _create_author(running_client)
+    assert (await running_client.get(f'/authors/{created["id"]}')).status_code == 200
+
+    await pause_redis_writes()
+    updated = await running_client.patch(f'/authors/{created["id"]}', json={'name': NEW_NAME})
+    assert updated.status_code == 200
+    assert await outbox_keys(session_factory) != []
+
+    await redis_client.client_unpause()
+    await _wait_until_outbox_is_empty(session_factory)
+
+    response = await running_client.get(f'/authors/{created["id"]}')
+    assert response.json()['name'] == NEW_NAME
+
+
+async def test_shutdown_completes_while_redis_rejects_invalidations(
+    app: FastAPI,
+    session_factory: async_sessionmaker[AsyncSession],
+    pause_redis_writes: PauseRedisWrites,
+) -> None:
+    key = f'v1:author:{uuid4()}'
+    async with tx_session(session_factory) as session:
+        await CacheInvalidationRepo(session).add(key)
+    await pause_redis_writes()
+
+    async with asyncio.timeout(SHUTDOWN_TIMEOUT_SECONDS):
+        async with app.router.lifespan_context(app):
+            await asyncio.sleep(FAST_RETRY_SECONDS * 2)
+
+    assert await outbox_keys(session_factory) == [key]
