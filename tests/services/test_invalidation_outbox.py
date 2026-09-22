@@ -1,10 +1,13 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
 from redis.asyncio import Redis
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -15,9 +18,11 @@ from src.infra.cache import TOMBSTONE, Cache
 from src.infra.db import tx_session
 from src.infra.invalidation import InvalidationOutbox
 from src.infra.unit_of_work import invalidating_tx_session
+from src.models import cache_invalidations
 from src.repository.cache_invalidations import CacheInvalidationRepo, pop_pending_invalidations
 from tests.conftest import (
     INVALIDATION_BATCH_SIZE,
+    INVALIDATION_LEASE_SECONDS,
     INVALIDATION_RETRY_SECONDS,
     PauseRedisWrites,
     closed_port,
@@ -27,6 +32,10 @@ from tests.conftest import (
 CACHE_LOGGER = 'src.infra.cache'
 OUTBOX_LOGGER = 'src.infra.invalidation'
 NEW_NAME = 'Новое Имя'
+LEASE = timedelta(seconds=INVALIDATION_LEASE_SECONDS)
+EXPIRED_LEASE = timedelta(0)
+WAIT_TIMEOUT_SECONDS = 5.0
+POLL_SECONDS = 0.01
 
 
 def _key(author_id: str) -> str:
@@ -48,6 +57,27 @@ async def _add(session_factory: async_sessionmaker[AsyncSession], *keys: str) ->
         for key in keys:
             await repo.add(key)
         return pop_pending_invalidations(session)
+
+
+async def _claim(session_factory: async_sessionmaker[AsyncSession], lease: timedelta) -> None:
+    async with tx_session(session_factory) as session:
+        await CacheInvalidationRepo(session).claim(INVALIDATION_BATCH_SIZE, lease)
+
+
+async def _claimed_until(
+    session_factory: async_sessionmaker[AsyncSession], invalidation_id: UUID
+) -> datetime | None:
+    async with session_factory() as session:
+        stmt = select(cache_invalidations.c.claimed_until).where(
+            cache_invalidations.c.id == invalidation_id
+        )
+        return (await session.execute(stmt)).scalar_one()
+
+
+async def _idle_in_transaction_count(session_factory: async_sessionmaker[AsyncSession]) -> int:
+    async with session_factory() as session:
+        stmt = text("SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'")
+        return (await session.execute(stmt)).scalar_one()
 
 
 @pytest.fixture
@@ -176,7 +206,9 @@ async def test_flush_drains_more_than_one_batch(
 ) -> None:
     keys = ['v1:author:1', 'v1:author:2', 'v1:author:3']
     await _add(session_factory, *keys)
-    outbox = InvalidationOutbox(session_factory, cache, 1, INVALIDATION_RETRY_SECONDS)
+    outbox = InvalidationOutbox(
+        session_factory, cache, 1, INVALIDATION_RETRY_SECONDS, INVALIDATION_LEASE_SECONDS
+    )
 
     await outbox.flush()
 
@@ -207,7 +239,11 @@ async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failur
     keys = ['v1:author:1', 'v1:author:2']
     await _add(session_factory, *keys)
     outbox = InvalidationOutbox(
-        session_factory, unreachable_cache, INVALIDATION_BATCH_SIZE, INVALIDATION_RETRY_SECONDS
+        session_factory,
+        unreachable_cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
     )
 
     with caplog.at_level(logging.WARNING, logger=CACHE_LOGGER):
@@ -217,13 +253,84 @@ async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failur
     assert len([record for record in caplog.records if record.name == CACHE_LOGGER]) == 1
 
 
+async def test_invalidations_left_by_failed_flush_are_applied_by_next_flush(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    pause_redis_writes: PauseRedisWrites,
+) -> None:
+    keys = ['v1:author:1', 'v1:author:2']
+    await _add(session_factory, *keys)
+    await pause_redis_writes()
+    await outbox.flush()
+    assert await outbox_keys(session_factory) == keys
+
+    await redis_client.client_unpause()
+    await outbox.flush()
+
+    assert [await redis_client.get(key) for key in keys] == [TOMBSTONE, TOMBSTONE]
+    assert await outbox_keys(session_factory) == []
+
+
+async def test_flush_commits_claim_and_holds_no_transaction_while_waiting_for_redis(
+    outbox: InvalidationOutbox,
+    session_factory: async_sessionmaker[AsyncSession],
+    pause_redis_writes: PauseRedisWrites,
+) -> None:
+    [invalidation_id] = await _add(session_factory, 'v1:author:1')
+    await pause_redis_writes()
+
+    flushing = asyncio.create_task(outbox.flush())
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        while await _claimed_until(session_factory, invalidation_id) is None:
+            await asyncio.sleep(POLL_SECONDS)
+
+    assert await _idle_in_transaction_count(session_factory) == 0
+    assert not flushing.done()
+    await flushing
+
+
+async def test_flush_skips_invalidation_claimed_by_another_processor(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:1'
+    await _add(session_factory, key)
+    await _claim(session_factory, LEASE)
+
+    await outbox.flush()
+
+    assert await redis_client.exists(key) == 0
+    assert await outbox_keys(session_factory) == [key]
+
+
+async def test_flush_takes_over_invalidation_whose_lease_expired(
+    outbox: InvalidationOutbox,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:1'
+    await _add(session_factory, key)
+    await _claim(session_factory, EXPIRED_LEASE)
+
+    await outbox.flush()
+
+    assert await redis_client.get(key) == TOMBSTONE
+    assert await outbox_keys(session_factory) == []
+
+
 async def test_flush_with_unreachable_database_logs_and_does_not_raise(
     cache: Cache,
     unreachable_session_factory: async_sessionmaker[AsyncSession],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     outbox = InvalidationOutbox(
-        unreachable_session_factory, cache, INVALIDATION_BATCH_SIZE, INVALIDATION_RETRY_SECONDS
+        unreachable_session_factory,
+        cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
     )
 
     with caplog.at_level(logging.ERROR, logger=OUTBOX_LOGGER):
@@ -240,8 +347,10 @@ async def test_claim_skips_rows_locked_by_another_processor(
     await _add(session_factory, 'v1:author:1', 'v1:author:2')
 
     async with tx_session(session_factory) as first, tx_session(session_factory) as second:
-        claimed_by_first = await CacheInvalidationRepo(first).claim(INVALIDATION_BATCH_SIZE)
-        claimed_by_second = await CacheInvalidationRepo(second).claim(INVALIDATION_BATCH_SIZE)
+        claimed_by_first = await CacheInvalidationRepo(first).claim(INVALIDATION_BATCH_SIZE, LEASE)
+        claimed_by_second = await CacheInvalidationRepo(second).claim(
+            INVALIDATION_BATCH_SIZE, LEASE
+        )
 
     assert [key for _, key in claimed_by_first] == ['v1:author:1', 'v1:author:2']
     assert claimed_by_second == []
@@ -255,11 +364,11 @@ async def test_invalidation_stored_after_claim_survives_delete_of_claimed_rows(
 
     async with tx_session(session_factory) as session:
         repo = CacheInvalidationRepo(session)
-        claimed = await repo.claim(INVALIDATION_BATCH_SIZE)
+        claimed = await repo.claim(INVALIDATION_BATCH_SIZE, LEASE)
         [later_id] = await _add(session_factory, key)
         await repo.delete([invalidation_id for invalidation_id, _ in claimed])
 
     async with tx_session(session_factory) as session:
-        remaining = await CacheInvalidationRepo(session).claim(INVALIDATION_BATCH_SIZE)
+        remaining = await CacheInvalidationRepo(session).claim(INVALIDATION_BATCH_SIZE, LEASE)
 
     assert [invalidation_id for invalidation_id, _ in remaining] == [later_id]

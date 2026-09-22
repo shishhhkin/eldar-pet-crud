@@ -15,4 +15,5 @@ cache_invalidations = sa.Table(
         server_default=sa.func.now(),
         nullable=False,
     ),
+    sa.Column('claimed_until', sa.DateTime(timezone=True), nullable=True),
 )

@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         cache,
         settings.cache_invalidation_batch_size,
         settings.cache_invalidation_retry_seconds,
+        settings.cache_invalidation_lease_seconds,
     )
 
     app.state.session_factory = session_factory

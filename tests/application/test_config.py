@@ -22,3 +22,10 @@ def test_invalidation_retry_interval_must_be_positive(monkeypatch: pytest.Monkey
 
     with pytest.raises(ValidationError):
         Settings()  # type: ignore[call-arg]
+
+
+def test_invalidation_lease_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('cache_invalidation_lease_seconds', '0')
+
+    with pytest.raises(ValidationError):
+        Settings()  # type: ignore[call-arg]

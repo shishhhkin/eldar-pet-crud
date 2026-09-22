@@ -29,6 +29,7 @@ REDIS_TIMEOUT_SECONDS = 0.5
 REDIS_PAUSE_SAFETY_MS = 30_000
 INVALIDATION_BATCH_SIZE = 100
 INVALIDATION_RETRY_SECONDS = 0.05
+INVALIDATION_LEASE_SECONDS = 60
 
 
 def closed_port() -> int:
@@ -121,6 +122,7 @@ def _outbox(session_factory: async_sessionmaker[AsyncSession], cache: Cache) -> 
         cache,
         INVALIDATION_BATCH_SIZE,
         INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
     )
 
 

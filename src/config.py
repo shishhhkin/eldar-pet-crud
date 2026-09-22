@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     cache_tombstone_ttl_ms: int
     cache_invalidation_retry_seconds: float = Field(gt=0)
     cache_invalidation_batch_size: int = Field(ge=1)
+    cache_invalidation_lease_seconds: float = Field(gt=0)
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
