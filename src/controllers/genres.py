@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, status
 
-from src.dependencies import GenreServiceDep, GenreServiceTxDep
+from src.dependencies.genres import GenreServiceDep, GenreServiceTxDep
 from src.schemas.errors import (
     CREATE_RESPONSES,
     DELETE_RESPONSES,
