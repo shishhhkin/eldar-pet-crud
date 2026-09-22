@@ -30,7 +30,7 @@ class InvalidationOutbox:
 
     async def flush(self, ids: Sequence[UUID] | None = None) -> None:
         try:
-            while await self._process_batch(ids):
+            while await self._process_batch(ids) == self.batch_size:
                 pass
         except Exception:
             logger.exception('cache invalidation outbox processing failed')
@@ -40,11 +40,11 @@ class InvalidationOutbox:
             await asyncio.sleep(self.retry_interval_seconds)
             await self.flush()
 
-    async def _process_batch(self, ids: Sequence[UUID] | None) -> bool:
+    async def _process_batch(self, ids: Sequence[UUID] | None) -> int:
         async with tx_session(self.session_factory) as session:
             claimed = await CacheInvalidationRepo(session).claim(self.batch_size, self.lease, ids)
         if not claimed:
-            return False
+            return 0
         done: list[UUID] = []
         for invalidation_id, key in claimed:
             if not await self.cache.tombstone(key):
@@ -57,4 +57,4 @@ class InvalidationOutbox:
                 await repo.delete(done)
             if remaining:
                 await repo.release(remaining)
-        return len(done) == self.batch_size
+        return len(done)

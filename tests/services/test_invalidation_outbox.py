@@ -231,7 +231,11 @@ async def test_flush_with_ids_applies_only_those_invalidations(
     assert await outbox_keys(session_factory) == ['v1:author:foreign']
 
 
+@pytest.mark.parametrize(
+    'batch_size', [INVALIDATION_BATCH_SIZE, 1], ids=['partial_batch', 'full_batch']
+)
 async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failure(
+    batch_size: int,
     unreachable_cache: Cache,
     session_factory: async_sessionmaker[AsyncSession],
     caplog: pytest.LogCaptureFixture,
@@ -241,13 +245,14 @@ async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failur
     outbox = InvalidationOutbox(
         session_factory,
         unreachable_cache,
-        INVALIDATION_BATCH_SIZE,
+        batch_size,
         INVALIDATION_RETRY_SECONDS,
         INVALIDATION_LEASE_SECONDS,
     )
 
     with caplog.at_level(logging.WARNING, logger=CACHE_LOGGER):
-        await outbox.flush()
+        async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+            await outbox.flush()
 
     assert await outbox_keys(session_factory) == keys
     assert len([record for record in caplog.records if record.name == CACHE_LOGGER]) == 1
