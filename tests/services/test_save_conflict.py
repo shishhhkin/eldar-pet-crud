@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.exceptions import AlreadyExistsError
 from src.infra.cache import Cache
 from src.models.genres import GenreModel
-from src.repository import GenreRepo, Repo, UserRepo
+from src.repository import CacheInvalidationRepo, GenreRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate
 from src.schemas.moods import MoodPayload
 from src.schemas.users import UserCreate, UserProfilePayload
@@ -30,12 +30,12 @@ def genre_repo(db_session: AsyncSession) -> Repo[GenreModel]:
 
 @pytest.fixture
 def genre_service(db_session: AsyncSession, cache: Cache) -> GenreService:
-    return GenreService(GenreRepo(db_session), cache)
+    return GenreService(GenreRepo(db_session), CacheInvalidationRepo(db_session), cache)
 
 
 @pytest.fixture
 def user_service(db_session: AsyncSession, cache: Cache) -> UserService:
-    return UserService(UserRepo(db_session), cache)
+    return UserService(UserRepo(db_session), CacheInvalidationRepo(db_session), cache)
 
 
 async def test_repo_save_propagates_raw_integrity_error(genre_repo: Repo[GenreModel]) -> None:

@@ -16,10 +16,10 @@ class BaseService[RepoT: Repo, ModelT: Base, ReadT: BaseModel]:
     cache_namespace: str
     read_model: type[ReadT]
 
-    def __init__(self, repo: RepoT, cache: Cache) -> None:
+    def __init__(self, repo: RepoT, invalidations: CacheInvalidationRepo, cache: Cache) -> None:
         self.repo = repo
+        self.invalidations = invalidations
         self.cache = cache
-        self.invalidations = CacheInvalidationRepo(repo.session)
 
     def _cache_key(self, obj_id: UUID) -> str:
         return build_key(self.cache_namespace, obj_id)

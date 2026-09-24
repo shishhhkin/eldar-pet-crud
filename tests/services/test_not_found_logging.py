@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import NotFoundError
 from src.infra.cache import Cache
-from src.repository import AuthorRepo, GenreRepo, UserRepo
+from src.repository import AuthorRepo, CacheInvalidationRepo, GenreRepo, UserRepo
 from src.services.author_service import AuthorService
 from src.services.genre_service import GenreService
 from src.services.user_service import UserService
@@ -29,7 +29,7 @@ async def test_get_missing_raises_not_found_and_logs(
     repo_cls: type,
     entity: str,
 ) -> None:
-    service = service_cls(repo_cls(db_session), cache)
+    service = service_cls(repo_cls(db_session), CacheInvalidationRepo(db_session), cache)
     missing_id = uuid4()
 
     with (
