@@ -31,16 +31,16 @@ class InvalidationOutbox:
         self.lease = timedelta(seconds=lease_seconds)
 
     async def flush(self, ids: Sequence[UUID] | None = None) -> None:
-        try:
-            while await self._process_batch(ids) == self.batch_size:
-                pass
-        except Exception:
-            logger.exception('cache invalidation outbox processing failed')
+        while await self._process_batch(ids) == self.batch_size:
+            pass
 
     async def run(self) -> None:
         while True:
             await asyncio.sleep(self.retry_interval_seconds)
-            await self.flush()
+            try:
+                await self.flush()
+            except Exception:
+                logger.exception('cache invalidation outbox processing failed')
 
     async def _process_batch(self, ids: Sequence[UUID] | None) -> int:
         async with tx_session(self.session_factory) as session:

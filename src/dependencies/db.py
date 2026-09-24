@@ -1,14 +1,18 @@
+import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, cast
 
 from fastapi import Depends, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.dependencies.outbox import OutboxDep
 from src.infra.db import readonly_session, tx_session
 from src.repository.cache_invalidations import pop_pending_invalidations
 from src.services.invalidation_outbox import InvalidationOutbox
+
+logger = logging.getLogger(__name__)
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:
@@ -32,7 +36,10 @@ async def invalidating_tx_session(
         yield session
     pending = pop_pending_invalidations(session)
     if pending:
-        await outbox.flush(pending)
+        try:
+            await outbox.flush(pending)
+        except SQLAlchemyError, OSError:
+            logger.warning('cache invalidation deferred to outbox worker', exc_info=True)
 
 
 async def get_tx_session(

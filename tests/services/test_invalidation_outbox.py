@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -31,6 +32,7 @@ from tests.conftest import (
 
 CACHE_LOGGER = 'src.infra.cache'
 OUTBOX_LOGGER = 'src.services.invalidation_outbox'
+DB_DEPENDENCY_LOGGER = 'src.dependencies.db'
 NEW_NAME = 'Новое Имя'
 LEASE = timedelta(seconds=INVALIDATION_LEASE_SECONDS)
 EXPIRED_LEASE = timedelta(0)
@@ -360,10 +362,9 @@ async def test_flush_takes_over_invalidation_whose_lease_expired(
     assert await outbox_keys(session_factory) == []
 
 
-async def test_flush_with_unreachable_database_logs_and_does_not_raise(
+async def test_flush_with_unreachable_database_raises(
     cache: Cache,
     unreachable_session_factory: async_sessionmaker[AsyncSession],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     outbox = InvalidationOutbox(
         unreachable_session_factory,
@@ -374,12 +375,100 @@ async def test_flush_with_unreachable_database_logs_and_does_not_raise(
         INVALIDATION_LEASE_SECONDS,
     )
 
-    with caplog.at_level(logging.ERROR, logger=OUTBOX_LOGGER):
+    with pytest.raises(OSError):
         await outbox.flush()
 
+
+async def test_run_logs_failed_iteration_and_keeps_processing(
+    cache: Cache,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    key = 'v1:author:1'
+    await _add(session_factory, key)
+    calls = 0
+
+    def failing_once_repo_factory(session: AsyncSession) -> CacheInvalidationRepo:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError('unexpected failure')
+        return CacheInvalidationRepo(session)
+
+    outbox = InvalidationOutbox(
+        session_factory,
+        failing_once_repo_factory,
+        cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
+    )
+
+    with caplog.at_level(logging.ERROR, logger=OUTBOX_LOGGER):
+        worker = asyncio.create_task(outbox.run())
+        try:
+            async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+                while await outbox_keys(session_factory):
+                    await asyncio.sleep(POLL_SECONDS)
+        finally:
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
+
+    assert await redis_client.get(key) == TOMBSTONE
     records = [record for record in caplog.records if record.name == OUTBOX_LOGGER]
-    assert len(records) == 1
-    assert records[0].levelno == logging.ERROR
+    assert [record.levelno for record in records] == [logging.ERROR]
+
+
+async def test_database_failure_after_commit_leaves_invalidation_to_worker(
+    cache: Cache,
+    session_factory: async_sessionmaker[AsyncSession],
+    unreachable_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    key = 'v1:author:1'
+    outbox = InvalidationOutbox(
+        unreachable_session_factory,
+        CacheInvalidationRepo,
+        cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
+    )
+
+    with caplog.at_level(logging.WARNING, logger=DB_DEPENDENCY_LOGGER):
+        async with invalidating_tx_session(session_factory, outbox) as session:
+            await CacheInvalidationRepo(session).add(key)
+
+    assert await outbox_keys(session_factory) == [key]
+    records = [record for record in caplog.records if record.name == DB_DEPENDENCY_LOGGER]
+    assert [record.levelno for record in records] == [logging.WARNING]
+
+
+async def test_unexpected_failure_after_commit_propagates(
+    cache: Cache,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:1'
+
+    def broken_repo_factory(session: AsyncSession) -> CacheInvalidationRepo:
+        raise RuntimeError('unexpected failure')
+
+    outbox = InvalidationOutbox(
+        session_factory,
+        broken_repo_factory,
+        cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
+    )
+
+    with pytest.raises(RuntimeError, match='unexpected failure'):
+        async with invalidating_tx_session(session_factory, outbox) as session:
+            await CacheInvalidationRepo(session).add(key)
+
+    assert await outbox_keys(session_factory) == [key]
 
 
 async def test_claim_skips_rows_locked_by_another_processor(
