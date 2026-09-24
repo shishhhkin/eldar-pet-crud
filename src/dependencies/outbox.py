@@ -2,7 +2,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from src.infra.invalidation import InvalidationOutbox
+from src.services.invalidation_outbox import InvalidationOutbox
 
 
 def get_outbox(request: Request) -> InvalidationOutbox:

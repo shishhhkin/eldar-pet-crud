@@ -14,12 +14,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from src.dependencies.db import invalidating_tx_session
 from src.infra.cache import TOMBSTONE, Cache
 from src.infra.db import tx_session
-from src.infra.invalidation import InvalidationOutbox
-from src.infra.unit_of_work import invalidating_tx_session
 from src.models import cache_invalidations
 from src.repository.cache_invalidations import CacheInvalidationRepo, pop_pending_invalidations
+from src.services.invalidation_outbox import InvalidationOutbox
 from tests.conftest import (
     INVALIDATION_BATCH_SIZE,
     INVALIDATION_LEASE_SECONDS,
@@ -30,7 +30,7 @@ from tests.conftest import (
 )
 
 CACHE_LOGGER = 'src.infra.cache'
-OUTBOX_LOGGER = 'src.infra.invalidation'
+OUTBOX_LOGGER = 'src.services.invalidation_outbox'
 NEW_NAME = 'Новое Имя'
 LEASE = timedelta(seconds=INVALIDATION_LEASE_SECONDS)
 EXPIRED_LEASE = timedelta(0)

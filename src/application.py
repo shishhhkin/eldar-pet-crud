@@ -17,10 +17,10 @@ from src.exceptions.handlers import register_exception_handlers
 from src.healthcheck.router import router as healthcheck_router
 from src.infra.cache import Cache
 from src.infra.db import build_session_factory
-from src.infra.invalidation import InvalidationOutbox
 from src.logging_config import setup_logging
 from src.middleware import LoggingMiddleware, RequestIDMiddleware
 from src.repository import CacheInvalidationRepo
+from src.services.invalidation_outbox import InvalidationOutbox
 
 
 @asynccontextmanager

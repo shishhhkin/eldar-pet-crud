@@ -20,9 +20,9 @@ from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
 from src.infra.cache import Cache
-from src.infra.invalidation import InvalidationOutbox
 from src.models import Base, cache_invalidations
 from src.repository import CacheInvalidationRepo
+from src.services.invalidation_outbox import InvalidationOutbox
 
 CACHE_TTL_SECONDS = 60
 TOMBSTONE_TTL_MS = 2000
