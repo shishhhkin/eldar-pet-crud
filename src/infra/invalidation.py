@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 from uuid import UUID
 
@@ -17,12 +17,14 @@ class InvalidationOutbox:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
+        repo_factory: Callable[[AsyncSession], CacheInvalidationRepo],
         cache: Cache,
         batch_size: int,
         retry_interval_seconds: float,
         lease_seconds: float,
     ) -> None:
         self.session_factory = session_factory
+        self.repo_factory = repo_factory
         self.cache = cache
         self.batch_size = batch_size
         self.retry_interval_seconds = retry_interval_seconds
@@ -42,7 +44,7 @@ class InvalidationOutbox:
 
     async def _process_batch(self, ids: Sequence[UUID] | None) -> int:
         async with tx_session(self.session_factory) as session:
-            claimed = await CacheInvalidationRepo(session).claim(self.batch_size, self.lease, ids)
+            claimed = await self.repo_factory(session).claim(self.batch_size, self.lease, ids)
         if not claimed:
             return 0
         done: list[UUID] = []
@@ -52,7 +54,7 @@ class InvalidationOutbox:
             done.append(invalidation_id)
         remaining = [invalidation_id for invalidation_id, _ in claimed[len(done) :]]
         async with tx_session(self.session_factory) as session:
-            repo = CacheInvalidationRepo(session)
+            repo = self.repo_factory(session)
             if done:
                 await repo.delete(done)
             if remaining:

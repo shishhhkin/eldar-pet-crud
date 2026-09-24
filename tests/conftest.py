@@ -22,6 +22,7 @@ from src.application import get_app
 from src.infra.cache import Cache
 from src.infra.invalidation import InvalidationOutbox
 from src.models import Base, cache_invalidations
+from src.repository import CacheInvalidationRepo
 
 CACHE_TTL_SECONDS = 60
 TOMBSTONE_TTL_MS = 2000
@@ -119,6 +120,7 @@ async def pause_redis_writes(redis_client: Redis) -> AsyncIterator[PauseRedisWri
 def _outbox(session_factory: async_sessionmaker[AsyncSession], cache: Cache) -> InvalidationOutbox:
     return InvalidationOutbox(
         session_factory,
+        CacheInvalidationRepo,
         cache,
         INVALIDATION_BATCH_SIZE,
         INVALIDATION_RETRY_SECONDS,

@@ -199,6 +199,35 @@ async def test_flush_applies_every_stored_invalidation(
     assert await outbox_keys(session_factory) == []
 
 
+async def test_flush_works_through_given_repository_factory(
+    cache: Cache,
+    redis_client: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    key = 'v1:author:1'
+    await _add(session_factory, key)
+    sessions: list[AsyncSession] = []
+
+    def repo_factory(session: AsyncSession) -> CacheInvalidationRepo:
+        sessions.append(session)
+        return CacheInvalidationRepo(session)
+
+    outbox = InvalidationOutbox(
+        session_factory,
+        repo_factory,
+        cache,
+        INVALIDATION_BATCH_SIZE,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
+    )
+
+    await outbox.flush()
+
+    assert await redis_client.get(key) == TOMBSTONE
+    assert await outbox_keys(session_factory) == []
+    assert len(set(sessions)) == 2
+
+
 async def test_flush_drains_more_than_one_batch(
     cache: Cache,
     redis_client: Redis,
@@ -207,7 +236,12 @@ async def test_flush_drains_more_than_one_batch(
     keys = ['v1:author:1', 'v1:author:2', 'v1:author:3']
     await _add(session_factory, *keys)
     outbox = InvalidationOutbox(
-        session_factory, cache, 1, INVALIDATION_RETRY_SECONDS, INVALIDATION_LEASE_SECONDS
+        session_factory,
+        CacheInvalidationRepo,
+        cache,
+        1,
+        INVALIDATION_RETRY_SECONDS,
+        INVALIDATION_LEASE_SECONDS,
     )
 
     await outbox.flush()
@@ -244,6 +278,7 @@ async def test_flush_with_unreachable_redis_keeps_rows_and_stops_at_first_failur
     await _add(session_factory, *keys)
     outbox = InvalidationOutbox(
         session_factory,
+        CacheInvalidationRepo,
         unreachable_cache,
         batch_size,
         INVALIDATION_RETRY_SECONDS,
@@ -332,6 +367,7 @@ async def test_flush_with_unreachable_database_logs_and_does_not_raise(
 ) -> None:
     outbox = InvalidationOutbox(
         unreachable_session_factory,
+        CacheInvalidationRepo,
         cache,
         INVALIDATION_BATCH_SIZE,
         INVALIDATION_RETRY_SECONDS,

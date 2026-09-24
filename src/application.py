@@ -20,6 +20,7 @@ from src.infra.db import build_session_factory
 from src.infra.invalidation import InvalidationOutbox
 from src.logging_config import setup_logging
 from src.middleware import LoggingMiddleware, RequestIDMiddleware
+from src.repository import CacheInvalidationRepo
 
 
 @asynccontextmanager
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     cache = Cache(client, settings.cache_ttl_seconds, settings.cache_tombstone_ttl_ms)
     outbox = InvalidationOutbox(
         session_factory,
+        CacheInvalidationRepo,
         cache,
         settings.cache_invalidation_batch_size,
         settings.cache_invalidation_retry_seconds,
