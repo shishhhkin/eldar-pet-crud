@@ -13,14 +13,29 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${redis_port}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
   app:
     build: .
     env_file: .env
     environment:
       postgres_host: postgres
       postgres_port: 5432
+      redis_host: redis
+      redis_port: 6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"

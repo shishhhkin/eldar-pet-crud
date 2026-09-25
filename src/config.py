@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import PostgresDsn, computed_field
+from pydantic import Field, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parent.parent / '.env'
@@ -12,6 +12,17 @@ class Settings(BaseSettings):
     postgres_host: str
     postgres_port: int
     postgres_db: str
+
+    redis_host: str
+    redis_port: int
+    redis_timeout_seconds: float
+    redis_retries: int
+
+    cache_ttl_seconds: int
+    cache_tombstone_ttl_ms: int
+    cache_invalidation_retry_seconds: float = Field(gt=0)
+    cache_invalidation_batch_size: int = Field(ge=1)
+    cache_invalidation_lease_seconds: float = Field(gt=0)
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

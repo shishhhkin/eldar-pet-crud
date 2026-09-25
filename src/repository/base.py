@@ -19,6 +19,8 @@ def active_only() -> ExecutableOption:
 
 
 class Repo[ModelT: Base]:
+    relations: tuple[ExecutableOption, ...] = ()
+
     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:
         self.session = session
         self.model = model
@@ -26,7 +28,13 @@ class Repo[ModelT: Base]:
     def select(self) -> Select[tuple[ModelT]]:
         return select(self.model).options(active_only())
 
-    async def get(self, obj_id: UUID, *options: ExecutableOption) -> ModelT | None:
+    async def get(self, obj_id: UUID) -> ModelT | None:
+        return await self._get(obj_id)
+
+    async def get_with_relations(self, obj_id: UUID) -> ModelT | None:
+        return await self._get(obj_id, *self.relations)
+
+    async def _get(self, obj_id: UUID, *options: ExecutableOption) -> ModelT | None:
         stmt = self.select().where(self.model.id == obj_id).options(*options)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 

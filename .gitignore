@@ -16,3 +16,5 @@ wheels/
 
 # Для ручных тестов
 generic_data_csv/
+
+.DS_Store

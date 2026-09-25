@@ -1,10 +1,13 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.models.users import UserModel
 from src.repository.base import Repo
 
 
 class UserRepo(Repo[UserModel]):
+    relations = (selectinload(UserModel.profile),)
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, UserModel)
 

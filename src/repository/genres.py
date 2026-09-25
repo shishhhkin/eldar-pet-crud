@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.models.genres import GenreModel
 from src.models.moods import MoodModel
@@ -10,6 +11,8 @@ from src.repository.base import Repo, active_only
 
 
 class GenreRepo(Repo[GenreModel]):
+    relations = (selectinload(GenreModel.moods),)
+
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, GenreModel)
 
