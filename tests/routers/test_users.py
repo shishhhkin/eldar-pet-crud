@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user_profiles import UserProfileModel
 from src.repository import Repo
+from tests.conftest import without_synced_at
 
 
 def _payload(
@@ -50,7 +51,7 @@ async def test_read_user(client: AsyncClient) -> None:
     response = await client.get(f'/users/{created["id"]}')
 
     assert response.status_code == 200
-    assert response.json() == created
+    assert without_synced_at(response.json()) == without_synced_at(created)
 
 
 async def test_read_user_not_found(client: AsyncClient) -> None:

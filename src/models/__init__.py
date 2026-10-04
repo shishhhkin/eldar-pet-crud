@@ -5,6 +5,7 @@ from src.models.cache_invalidations import cache_invalidations
 from src.models.genre_moods import genre_moods
 from src.models.genres import GenreModel
 from src.models.moods import MoodModel
+from src.models.user_memberships import UserMembershipModel
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
 
@@ -14,6 +15,7 @@ __all__ = [
     'BookModel',
     'GenreModel',
     'MoodModel',
+    'UserMembershipModel',
     'UserModel',
     'UserProfileModel',
     'cache_invalidations',

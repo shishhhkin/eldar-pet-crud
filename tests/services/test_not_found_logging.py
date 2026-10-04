@@ -6,37 +6,45 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import NotFoundError
 from src.infra.cache import Cache
+from src.infra.library import LibraryClient
 from src.repository import AuthorRepo, CacheInvalidationRepo, GenreRepo, UserRepo
 from src.services.author_service import AuthorService
+from src.services.base import BaseService
 from src.services.genre_service import GenreService
+from src.services.membership_issuer import MembershipIssuer
 from src.services.user_service import UserService
 
 LOGGER_NAME = 'src.services.base'
 
-CASES = [
-    (AuthorService, AuthorRepo, 'Author'),
-    (GenreService, GenreRepo, 'Genre'),
-    (UserService, UserRepo, 'User'),
-]
 
-
-@pytest.mark.parametrize(('service_cls', 'repo_cls', 'entity'), CASES)
-async def test_get_missing_raises_not_found_and_logs(
+@pytest.fixture
+def services(
     db_session: AsyncSession,
     cache: Cache,
+    library: LibraryClient,
+    membership_issuer: MembershipIssuer,
+) -> dict[str, BaseService]:
+    invalidations = CacheInvalidationRepo(db_session)
+    return {
+        'Author': AuthorService(AuthorRepo(db_session), invalidations, cache),
+        'Genre': GenreService(GenreRepo(db_session), invalidations, cache),
+        'User': UserService(UserRepo(db_session), invalidations, cache, library, membership_issuer),
+    }
+
+
+@pytest.mark.parametrize('entity', ['Author', 'Genre', 'User'])
+async def test_get_missing_raises_not_found_and_logs(
+    services: dict[str, BaseService],
     caplog: pytest.LogCaptureFixture,
-    service_cls: type,
-    repo_cls: type,
     entity: str,
 ) -> None:
-    service = service_cls(repo_cls(db_session), CacheInvalidationRepo(db_session), cache)
     missing_id = uuid4()
 
     with (
         caplog.at_level(logging.INFO, logger=LOGGER_NAME),
         pytest.raises(NotFoundError) as excinfo,
     ):
-        await service.get(missing_id)
+        await services[entity].get(missing_id)
 
     assert str(excinfo.value) == f'{entity} {missing_id} not found'
 

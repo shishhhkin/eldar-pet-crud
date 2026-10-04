@@ -6,18 +6,24 @@ from src.dependencies.authors import AuthorServiceTxDep
 from src.dependencies.genres import GenreServiceTxDep
 from src.dependencies.users import UserServiceTxDep
 from src.infra.cache import Cache
+from src.infra.library import LibraryClient
 from src.services.invalidation_outbox import InvalidationOutbox
+from src.services.membership_issuer import MembershipIssuer
 
 
 async def test_write_services_record_invalidations_in_data_session(
     session_factory: async_sessionmaker[AsyncSession],
     cache: Cache,
     outbox: InvalidationOutbox,
+    library: LibraryClient,
+    membership_issuer: MembershipIssuer,
 ) -> None:
     app = FastAPI()
     app.state.session_factory = session_factory
     app.state.cache = cache
     app.state.outbox = outbox
+    app.state.library = library
+    app.state.membership_issuer = membership_issuer
 
     @app.get('/sessions')
     async def sessions(

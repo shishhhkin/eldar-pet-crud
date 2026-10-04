@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, status
 
-from src.dependencies.users import UserServiceDep, UserServiceTxDep
+from src.dependencies.users import UserRegistrationDep, UserServiceDep, UserServiceTxDep
 from src.schemas.errors import (
     CREATE_RESPONSES,
     DELETE_RESPONSES,
@@ -24,9 +24,9 @@ router = APIRouter(prefix='/users', tags=['users'])
 )
 async def create_user(
     payload: Annotated[UserCreate, Body(openapi_examples=USER_CREATE_EXAMPLES)],
-    service: UserServiceTxDep,
+    registration: UserRegistrationDep,
 ) -> UserRead:
-    return await service.create(payload)
+    return await registration.register(payload)
 
 
 @router.get('/{user_id}', response_model=UserRead, responses=READ_RESPONSES)
