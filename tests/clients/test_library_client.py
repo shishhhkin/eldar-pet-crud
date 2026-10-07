@@ -26,16 +26,7 @@ async def test_issue_existing_membership_returns_it(
 
     assert await library.issue_membership(existing.user_id) == existing
     assert len(fake_library.memberships) == 1
-    assert [request.method for request in fake_library.requests] == ['POST', 'GET']
-
-
-async def test_issue_conflict_without_membership_is_unavailable(
-    library: LibraryClient, fake_library: FakeLibrary
-) -> None:
-    fake_library.fail(status=HTTPStatus.CONFLICT)
-
-    with pytest.raises(ExternalServiceUnavailableError):
-        await library.issue_membership(uuid4())
+    assert [request.method for request in fake_library.requests] == ['POST']
 
 
 async def test_get_membership(library: LibraryClient, fake_library: FakeLibrary) -> None:
@@ -43,13 +34,6 @@ async def test_get_membership(library: LibraryClient, fake_library: FakeLibrary)
 
     assert await library.get_membership(existing.id) == existing
     assert await library.get_membership(uuid4()) is None
-
-
-async def test_find_membership(library: LibraryClient, fake_library: FakeLibrary) -> None:
-    existing = fake_library.issue(uuid4())
-
-    assert await library.find_membership(existing.user_id) == existing
-    assert await library.find_membership(uuid4()) is None
 
 
 async def test_server_errors_are_retried(library: LibraryClient, fake_library: FakeLibrary) -> None:
@@ -78,7 +62,7 @@ async def test_retry_after_lost_response_does_not_duplicate(
     membership = await library.issue_membership(user_id)
 
     assert fake_library.memberships == {user_id: membership}
-    assert [request.method for request in fake_library.requests] == ['POST', 'POST', 'GET']
+    assert [request.method for request in fake_library.requests] == ['POST', 'POST']
 
 
 async def test_exhausted_retries_raise_unavailable(
@@ -93,7 +77,9 @@ async def test_exhausted_retries_raise_unavailable(
     assert len(fake_library.requests) == LIBRARY_RETRY_ATTEMPTS
 
 
-@pytest.mark.parametrize('status', [HTTPStatus.UNPROCESSABLE_ENTITY, HTTPStatus.OK])
+@pytest.mark.parametrize(
+    'status', [HTTPStatus.UNPROCESSABLE_ENTITY, HTTPStatus.CONFLICT, HTTPStatus.OK]
+)
 async def test_unexpected_response_is_not_retried(
     library: LibraryClient, fake_library: FakeLibrary, status: HTTPStatus
 ) -> None:

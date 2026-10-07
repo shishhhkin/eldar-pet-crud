@@ -85,15 +85,10 @@ class FakeLibrary:
         path = request.url.path
         if path == MEMBERSHIPS_PATH and request.method == 'POST':
             payload = LibraryMembershipCreate.model_validate_json(request.content)
-            if payload.user_id in self.memberships:
-                return httpx.Response(HTTPStatus.CONFLICT)
+            existing = self.memberships.get(payload.user_id)
+            if existing is not None:
+                return self._json(HTTPStatus.OK, existing)
             return self._json(HTTPStatus.CREATED, self.issue(payload.user_id))
-        if path == MEMBERSHIPS_PATH and request.method == 'GET':
-            user_id = UUID(request.url.params['user_id'])
-            found = [self.memberships[user_id]] if user_id in self.memberships else []
-            return httpx.Response(
-                HTTPStatus.OK, json=[item.model_dump(mode='json') for item in found]
-            )
         membership_id = UUID(path.removeprefix(f'{MEMBERSHIPS_PATH}/'))
         for membership in self.memberships.values():
             if membership.id == membership_id:
