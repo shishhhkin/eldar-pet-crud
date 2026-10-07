@@ -26,7 +26,7 @@ def upgrade() -> None:
     sa.Column('number', sa.String(length=16), nullable=False),
     sa.Column('issued_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('version', sa.Integer(), nullable=False),
-    sa.Column('synced_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('synced_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),

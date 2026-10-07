@@ -1,8 +1,7 @@
 from collections.abc import Sequence
-from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,27 +15,29 @@ class UserMembershipRepo(Repo[UserMembershipModel]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, UserMembershipModel)
 
-    async def store(self, membership: LibraryMembership, synced_at: datetime) -> None:
+    async def store(self, membership: LibraryMembership) -> UserMembershipModel:
         stmt = pg_insert(UserMembershipModel).values(
             id=membership.id,
             user_id=membership.user_id,
             number=membership.number,
             issued_at=membership.issued_at,
             version=membership.version,
-            synced_at=synced_at,
         )
-        stmt = stmt.on_conflict_do_update(
+        newer = UserMembershipModel.version <= stmt.excluded.version
+        upsert = stmt.on_conflict_do_update(
             index_elements=[UserMembershipModel.user_id],
             set_={
-                'number': stmt.excluded.number,
-                'issued_at': stmt.excluded.issued_at,
-                'version': stmt.excluded.version,
-                'synced_at': func.greatest(UserMembershipModel.synced_at, stmt.excluded.synced_at),
+                'number': case((newer, stmt.excluded.number), else_=UserMembershipModel.number),
+                'issued_at': case(
+                    (newer, stmt.excluded.issued_at), else_=UserMembershipModel.issued_at
+                ),
+                'version': case((newer, stmt.excluded.version), else_=UserMembershipModel.version),
+                'synced_at': func.greatest(UserMembershipModel.synced_at, func.now()),
                 'updated_at': func.now(),
             },
-            where=UserMembershipModel.version <= stmt.excluded.version,
-        )
-        await self.session.execute(stmt)
+        ).returning(UserMembershipModel)
+        result = await self.session.scalars(upsert, execution_options={'populate_existing': True})
+        return result.one()
 
     async def pending_user_ids(self, limit: int) -> Sequence[UUID]:
         has_membership = exists().where(UserMembershipModel.user_id == UserModel.id)

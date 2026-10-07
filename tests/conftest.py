@@ -1,10 +1,12 @@
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from functools import partial
 
 import httpx
 import pytest
+from aiobreaker import CircuitBreaker
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
@@ -27,7 +29,7 @@ from src.repository import CacheInvalidationRepo, UserMembershipRepo, UserRepo
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
 from src.services.user_registration import UserRegistration
-from src.utils.resilience import CircuitBreaker, RetryPolicy
+from src.utils.resilience import RetryPolicy
 from tests.fake_library import BASE_URL, FakeLibrary
 
 CACHE_TTL_SECONDS = 60
@@ -161,10 +163,13 @@ def fake_library() -> FakeLibrary:
 
 @pytest.fixture
 def breaker() -> CircuitBreaker:
-    return CircuitBreaker(LIBRARY_BREAKER_THRESHOLD, LIBRARY_BREAKER_RESET_SECONDS)
+    return CircuitBreaker(
+        fail_max=LIBRARY_BREAKER_THRESHOLD,
+        timeout_duration=timedelta(seconds=LIBRARY_BREAKER_RESET_SECONDS),
+    )
 
 
-def _library(http: httpx.AsyncClient, breaker: CircuitBreaker) -> LibraryClient:
+def build_library(http: httpx.AsyncClient, breaker: CircuitBreaker) -> LibraryClient:
     retry = RetryPolicy(
         LIBRARY_RETRY_ATTEMPTS, LIBRARY_RETRY_BASE_DELAY_SECONDS, LIBRARY_RETRY_MAX_DELAY_SECONDS
     )
@@ -177,7 +182,7 @@ async def library(
 ) -> AsyncIterator[LibraryClient]:
     transport = httpx.MockTransport(fake_library.handler)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as http:
-        yield _library(http, breaker)
+        yield build_library(http, breaker)
 
 
 @pytest.fixture
@@ -186,7 +191,7 @@ async def unreachable_library(breaker: CircuitBreaker) -> AsyncIterator[LibraryC
     async with httpx.AsyncClient(
         base_url=base_url, timeout=LIBRARY_TIMEOUT_SECONDS, trust_env=False
     ) as http:
-        yield _library(http, breaker)
+        yield build_library(http, breaker)
 
 
 def _issuer(

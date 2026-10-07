@@ -1,15 +1,15 @@
-import asyncio
+import time
 
 import pytest
 
-from src.exceptions import CircuitOpenError, TransientError
-from src.utils.resilience import CircuitBreaker, RetryPolicy, backoff_delay
+from src.exceptions import TransientError
+from src.utils.resilience import RetryPolicy, backoff_delay
 
 ATTEMPTS = 3
 BASE_DELAY = 0.001
 MAX_DELAY = 0.004
-THRESHOLD = 2
-RESET_SECONDS = 0.05
+RETRY_AFTER = 0.05
+RETRY_AFTER_MAX_DELAY = 0.1
 SAMPLES = 200
 
 
@@ -29,17 +29,6 @@ class Flaky:
 @pytest.fixture
 def retry() -> RetryPolicy:
     return RetryPolicy(ATTEMPTS, BASE_DELAY, MAX_DELAY)
-
-
-@pytest.fixture
-def fast_breaker() -> CircuitBreaker:
-    return CircuitBreaker(THRESHOLD, RESET_SECONDS)
-
-
-async def _open(breaker: CircuitBreaker) -> None:
-    for _ in range(THRESHOLD):
-        with pytest.raises(TransientError):
-            await breaker.call(Flaky(1))
 
 
 @pytest.mark.parametrize('attempt', range(6))
@@ -68,7 +57,7 @@ async def test_retry_gives_up_after_all_attempts(retry: RetryPolicy) -> None:
     assert fn.calls == ATTEMPTS
 
 
-@pytest.mark.parametrize('error', [ValueError('bug'), CircuitOpenError('open')])
+@pytest.mark.parametrize('error', [ValueError('bug'), LookupError('missing')])
 async def test_retry_does_not_repeat_non_transient_errors(
     retry: RetryPolicy, error: Exception
 ) -> None:
@@ -80,81 +69,21 @@ async def test_retry_does_not_repeat_non_transient_errors(
     assert fn.calls == 1
 
 
-async def test_breaker_opens_after_threshold_and_skips_calls(
-    fast_breaker: CircuitBreaker,
-) -> None:
-    await _open(fast_breaker)
-    fn = Flaky(0)
+async def test_retry_waits_retry_after_instead_of_backoff() -> None:
+    retry = RetryPolicy(ATTEMPTS, BASE_DELAY, RETRY_AFTER_MAX_DELAY)
+    fn = Flaky(1, TransientError('throttled', retry_after=RETRY_AFTER))
+    started = time.monotonic()
 
-    with pytest.raises(CircuitOpenError):
-        await fast_breaker.call(fn)
+    assert await retry.call(fn) == 'ok'
 
-    assert fn.calls == 0
-
-
-async def test_breaker_success_resets_failure_count(fast_breaker: CircuitBreaker) -> None:
-    for _ in range(THRESHOLD + 1):
-        with pytest.raises(TransientError):
-            await fast_breaker.call(Flaky(1))
-        assert await fast_breaker.call(Flaky(0)) == 'ok'
+    assert time.monotonic() - started >= RETRY_AFTER
+    assert fn.calls == 2
 
 
-async def test_breaker_counts_any_error_as_failure(fast_breaker: CircuitBreaker) -> None:
-    for _ in range(THRESHOLD):
-        with pytest.raises(ValueError):
-            await fast_breaker.call(Flaky(1, ValueError('bug')))
-
-    with pytest.raises(CircuitOpenError):
-        await fast_breaker.call(Flaky(0))
-
-
-async def test_half_open_probe_success_closes_breaker(fast_breaker: CircuitBreaker) -> None:
-    await _open(fast_breaker)
-    await asyncio.sleep(RESET_SECONDS)
-
-    assert await fast_breaker.call(Flaky(0)) == 'ok'
-    assert await fast_breaker.call(Flaky(0)) == 'ok'
-
-
-async def test_half_open_probe_failure_reopens_breaker(fast_breaker: CircuitBreaker) -> None:
-    await _open(fast_breaker)
-    await asyncio.sleep(RESET_SECONDS)
+async def test_retry_gives_up_when_retry_after_exceeds_max_delay(retry: RetryPolicy) -> None:
+    fn = Flaky(1, TransientError('throttled', retry_after=MAX_DELAY * 2))
 
     with pytest.raises(TransientError):
-        await fast_breaker.call(Flaky(1))
-    fn = Flaky(0)
-    with pytest.raises(CircuitOpenError):
-        await fast_breaker.call(fn)
+        await retry.call(fn)
 
-    assert fn.calls == 0
-
-
-async def test_half_open_lets_single_probe_through(fast_breaker: CircuitBreaker) -> None:
-    await _open(fast_breaker)
-    await asyncio.sleep(RESET_SECONDS)
-    release = asyncio.Event()
-
-    async def slow_probe() -> str:
-        await release.wait()
-        return 'ok'
-
-    probe = asyncio.create_task(fast_breaker.call(slow_probe))
-    await asyncio.sleep(0)
-    with pytest.raises(CircuitOpenError):
-        await fast_breaker.call(Flaky(0))
-    release.set()
-
-    assert await probe == 'ok'
-
-
-async def test_cancelled_probe_releases_half_open_slot(fast_breaker: CircuitBreaker) -> None:
-    await _open(fast_breaker)
-    await asyncio.sleep(RESET_SECONDS)
-
-    probe = asyncio.create_task(fast_breaker.call(asyncio.Event().wait))
-    await asyncio.sleep(0)
-    probe.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await probe
-
-    assert await fast_breaker.call(Flaky(0)) == 'ok'
+    assert fn.calls == 1

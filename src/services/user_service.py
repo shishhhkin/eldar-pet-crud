@@ -2,7 +2,11 @@ import logging
 from uuid import UUID
 
 from src.clients.library import LibraryClient
-from src.exceptions import AlreadyExistsError, ExternalServiceUnavailableError
+from src.exceptions import (
+    AlreadyExistsError,
+    ExternalServiceBadResponseError,
+    ExternalServiceUnavailableError,
+)
 from src.infra.cache import Cache
 from src.mappers.users import apply_user_update, to_user_read
 from src.models.users import UserModel
@@ -32,23 +36,23 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         self.issuer = issuer
 
     async def _read(self, obj: UserModel) -> tuple[UserRead, Cacheable]:
-        local = self.read_model.model_validate(obj)
         if obj.membership is None:
-            return local, False
+            return self.read_model.model_validate(obj), False
         membership_id = obj.membership.id
         await self.repo.release()
         try:
             membership = await self.library.get_membership(membership_id)
         except ExternalServiceUnavailableError as exc:
-            logger.warning('serving membership copy: user_id=%s (%s)', obj.id, exc)
-            return local, False
-        if membership is None:
+            logger.warning('membership not fetched: user_id=%s (%s)', obj.id, exc)
+            raise
+        except ExternalServiceBadResponseError as exc:
             logger.error(
-                'membership missing in library: user_id=%s membership_id=%s',
+                'membership not fetched: user_id=%s membership_id=%s (%s)',
                 obj.id,
                 membership_id,
+                exc,
             )
-            return to_user_read(obj, None), False
+            raise
         return to_user_read(obj, await self.issuer.store(membership)), True
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:

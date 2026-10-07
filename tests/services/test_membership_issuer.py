@@ -1,11 +1,12 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
+from http import HTTPStatus
 from uuid import UUID
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infra.db import tx_session
@@ -128,6 +129,20 @@ async def test_issue_is_idempotent_for_same_user(
     assert await _stored(session_factory) == {user_id: first.id}
 
 
+async def test_issue_returns_none_when_library_rejects(
+    membership_issuer: MembershipIssuer,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    fake_library.fail(status=HTTPStatus.UNPROCESSABLE_ENTITY)
+
+    assert await membership_issuer.issue(user_id) is None
+    assert len(fake_library.requests) == 1
+    assert await _stored(session_factory) == {}
+
+
 async def test_issue_returns_none_when_library_unreachable(
     unreachable_membership_issuer: MembershipIssuer,
     create_user: CreateUser,
@@ -140,12 +155,10 @@ async def test_issue_returns_none_when_library_unreachable(
 
 
 async def _store(
-    session_factory: async_sessionmaker[AsyncSession],
-    membership: LibraryMembership,
-    synced_at: datetime,
-) -> None:
+    session_factory: async_sessionmaker[AsyncSession], membership: LibraryMembership
+) -> UserMembershipModel:
     async with tx_session(session_factory) as session:
-        await UserMembershipRepo(session).store(membership, synced_at)
+        return await UserMembershipRepo(session).store(membership)
 
 
 async def _stored_copy(session_factory: async_sessionmaker[AsyncSession]) -> UserMembershipModel:
@@ -153,7 +166,27 @@ async def _stored_copy(session_factory: async_sessionmaker[AsyncSession]) -> Use
         return (await session.execute(select(UserMembershipModel))).scalar_one()
 
 
-async def test_store_skips_older_version_synced_later(
+async def _db_now(session_factory: async_sessionmaker[AsyncSession]) -> datetime:
+    async with session_factory() as session:
+        return (await session.execute(select(func.now()))).scalar_one()
+
+
+async def test_store_sets_synced_at_on_db_side(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    issued = fake_library.issue(await create_user('alice'))
+    before = await _db_now(session_factory)
+
+    returned = await _store(session_factory, issued)
+
+    stored = await _stored_copy(session_factory)
+    assert before < stored.synced_at < await _db_now(session_factory)
+    assert returned.synced_at == stored.synced_at
+
+
+async def test_store_keeps_newer_version_and_returns_it(
     fake_library: FakeLibrary,
     create_user: CreateUser,
     session_factory: async_sessionmaker[AsyncSession],
@@ -161,33 +194,28 @@ async def test_store_skips_older_version_synced_later(
     user_id = await create_user('alice')
     issued = fake_library.issue(user_id)
     changed = fake_library.change(user_id, 'LIB-99999999')
-    synced_at = datetime.now(UTC)
-    await _store(session_factory, changed, synced_at)
+    first = await _store(session_factory, changed)
 
-    await _store(session_factory, issued, synced_at + timedelta(seconds=1))
+    returned = await _store(session_factory, issued)
 
     stored = await _stored_copy(session_factory)
-    assert (stored.number, stored.version, stored.synced_at) == (
-        changed.number,
-        changed.version,
-        synced_at,
-    )
+    assert (stored.number, stored.version) == (changed.number, changed.version)
+    assert (returned.number, returned.version) == (changed.number, changed.version)
+    assert stored.synced_at > first.synced_at
 
 
-async def test_store_same_version_moves_synced_at_forward_only(
+async def test_store_moves_synced_at_forward(
     fake_library: FakeLibrary,
     create_user: CreateUser,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     issued = fake_library.issue(await create_user('alice'))
-    synced_at = datetime.now(UTC)
-    await _store(session_factory, issued, synced_at)
+    first = await _store(session_factory, issued)
 
-    await _store(session_factory, issued, synced_at - timedelta(seconds=1))
-    assert (await _stored_copy(session_factory)).synced_at == synced_at
+    second = await _store(session_factory, issued)
 
-    await _store(session_factory, issued, synced_at + timedelta(seconds=1))
-    assert (await _stored_copy(session_factory)).synced_at == synced_at + timedelta(seconds=1)
+    assert second.synced_at > first.synced_at
+    assert (await _stored_copy(session_factory)).synced_at == second.synced_at
 
 
 async def test_run_loop_backfills_pending_users(

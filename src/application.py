@@ -1,8 +1,10 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
+from datetime import timedelta
 
 import httpx
+from aiobreaker import CircuitBreaker
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
@@ -24,7 +26,7 @@ from src.middleware import LoggingMiddleware, RequestIDMiddleware
 from src.repository import CacheInvalidationRepo, UserMembershipRepo
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
-from src.utils.resilience import CircuitBreaker, RetryPolicy
+from src.utils.resilience import RetryPolicy
 
 
 @asynccontextmanager
@@ -62,8 +64,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             settings.library_retry_max_delay_seconds,
         ),
         CircuitBreaker(
-            settings.library_breaker_failure_threshold,
-            settings.library_breaker_reset_seconds,
+            fail_max=settings.library_breaker_failure_threshold,
+            timeout_duration=timedelta(seconds=settings.library_breaker_reset_seconds),
         ),
     )
     issuer = MembershipIssuer(

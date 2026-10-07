@@ -179,7 +179,7 @@ async def test_slow_read_of_older_version_keeps_newer_copy(
     assert (stored.number, stored.version) == (changed.number, changed.version)
 
 
-async def test_read_user_while_library_down_serves_copy_uncached(
+async def test_read_user_while_library_down_returns_unavailable(
     client: AsyncClient, fake_library: FakeLibrary, redis_client: Redis
 ) -> None:
     created = await _create_user(client)
@@ -187,8 +187,8 @@ async def test_read_user_while_library_down_serves_copy_uncached(
 
     response = await client.get(f'/users/{created["id"]}')
 
-    assert response.status_code == 200
-    assert response.json() == created
+    assert response.status_code == 503
+    assert response.json()['code'] == 'external_service_unavailable'
     assert await redis_client.get(_key(created['id'])) is None
 
 
@@ -215,7 +215,7 @@ async def test_read_pending_user_does_not_call_library(
     assert _library_gets(fake_library) == 0
 
 
-async def test_read_user_with_membership_missing_in_library_logs_error(
+async def test_read_user_with_membership_missing_in_library_returns_bad_gateway(
     client: AsyncClient,
     fake_library: FakeLibrary,
     redis_client: Redis,
@@ -227,7 +227,8 @@ async def test_read_user_with_membership_missing_in_library_logs_error(
     with caplog.at_level(logging.ERROR, logger=SERVICE_LOGGER):
         response = await client.get(f'/users/{created["id"]}')
 
-    assert response.json() == {**created, 'membership': None}
+    assert response.status_code == 502
+    assert response.json()['code'] == 'external_service_bad_response'
     assert await redis_client.get(_key(created['id'])) is None
     assert any(
         record.name == SERVICE_LOGGER and created['membership']['id'] in record.getMessage()

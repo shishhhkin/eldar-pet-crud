@@ -25,6 +25,8 @@ class UserMembershipModel(Base):
     number: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     issued_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    synced_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    )
 
     user: Mapped[UserModel] = relationship(back_populates='membership')

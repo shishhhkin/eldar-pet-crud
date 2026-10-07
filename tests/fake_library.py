@@ -29,11 +29,16 @@ class FakeLibrary:
     def __init__(self) -> None:
         self.memberships: dict[UUID, LibraryMembership] = {}
         self.requests: list[httpx.Request] = []
-        self._faults: deque[Fault | HTTPStatus] = deque()
+        self._faults: deque[Fault | httpx.Response] = deque()
         self._hold: Hold | None = None
 
-    def fail(self, times: int = 1, status: HTTPStatus = HTTPStatus.SERVICE_UNAVAILABLE) -> None:
-        self._faults.extend([status] * times)
+    def fail(
+        self,
+        times: int = 1,
+        status: HTTPStatus = HTTPStatus.SERVICE_UNAVAILABLE,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._faults.extend(httpx.Response(status, headers=headers) for _ in range(times))
 
     def timeout(self, times: int = 1) -> None:
         self._faults.extend([Fault.TIMEOUT] * times)
@@ -70,8 +75,8 @@ class FakeLibrary:
         fault = self._faults.popleft() if self._faults else None
         if fault is Fault.TIMEOUT:
             raise httpx.ReadTimeout('timed out', request=request)
-        if isinstance(fault, HTTPStatus):
-            return httpx.Response(fault)
+        if isinstance(fault, httpx.Response):
+            return fault
         response = self._route(request)
         if request.method == 'GET' and self._hold is not None:
             hold, self._hold = self._hold, None

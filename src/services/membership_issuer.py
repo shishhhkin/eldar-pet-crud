@@ -1,14 +1,13 @@
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.clients.library import LibraryClient
-from src.exceptions import ExternalServiceUnavailableError
+from src.exceptions import ExternalServiceBadResponseError, ExternalServiceUnavailableError
 from src.infra.db import readonly_session, tx_session
 from src.mappers.users import to_membership_read
 from src.repository import UserMembershipRepo
@@ -36,21 +35,19 @@ class MembershipIssuer:
     async def issue(self, user_id: UUID) -> MembershipRead | None:
         try:
             membership = await self.library.issue_membership(user_id)
+            return await self.store(membership)
         except ExternalServiceUnavailableError as exc:
             logger.warning('membership issue deferred: user_id=%s (%s)', user_id, exc)
-            return None
-        return await self.store(membership)
+        except ExternalServiceBadResponseError as exc:
+            logger.error('membership issue rejected: user_id=%s (%s)', user_id, exc)
+        except SQLAlchemyError, OSError:
+            logger.warning('membership copy not stored: user_id=%s', user_id, exc_info=True)
+        return None
 
     async def store(self, membership: LibraryMembership) -> MembershipRead:
-        synced_at = datetime.now(UTC)
-        try:
-            async with tx_session(self.session_factory) as session:
-                await self.repo_factory(session).store(membership, synced_at)
-        except SQLAlchemyError, OSError:
-            logger.warning(
-                'membership copy not stored: user_id=%s', membership.user_id, exc_info=True
-            )
-        return to_membership_read(membership, synced_at)
+        async with tx_session(self.session_factory) as session:
+            stored = await self.repo_factory(session).store(membership)
+            return to_membership_read(stored)
 
     async def sync_pending(self) -> int:
         async with readonly_session(self.session_factory) as session:

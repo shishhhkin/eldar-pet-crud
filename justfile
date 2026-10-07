@@ -10,6 +10,9 @@ run:
 test *args:
     uv run pytest {{args}}
 
+test-external library_url *args:
+    EXTERNAL_LIBRARY_URL={{library_url}} uv run pytest tests/external {{args}}
+
 lint:
     uv run ruff check src tests
 
