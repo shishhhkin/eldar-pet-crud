@@ -2,13 +2,8 @@ import asyncio
 
 import pytest
 
-from src.infra.resilience import (
-    CircuitBreaker,
-    CircuitOpenError,
-    RetryPolicy,
-    TransientError,
-    backoff_delay,
-)
+from src.exceptions import CircuitOpenError, TransientError
+from src.utils.resilience import CircuitBreaker, RetryPolicy, backoff_delay
 
 ATTEMPTS = 3
 BASE_DELAY = 0.001

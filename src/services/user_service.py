@@ -1,9 +1,9 @@
 import logging
 from uuid import UUID
 
-from src.exceptions import AlreadyExistsError, LibraryUnavailableError
+from src.clients.library import LibraryClient
+from src.exceptions import AlreadyExistsError, ExternalServiceUnavailableError
 from src.infra.cache import Cache
-from src.infra.library import LibraryClient
 from src.mappers.users import apply_user_update, to_user_read
 from src.models.users import UserModel
 from src.repository import CacheInvalidationRepo, UserRepo
@@ -39,7 +39,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         await self.repo.release()
         try:
             membership = await self.library.get_membership(membership_id)
-        except LibraryUnavailableError as exc:
+        except ExternalServiceUnavailableError as exc:
             logger.warning('serving membership copy: user_id=%s (%s)', obj.id, exc)
             return local, False
         if membership is None:

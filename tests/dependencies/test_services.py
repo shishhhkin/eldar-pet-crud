@@ -2,11 +2,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.clients.library import LibraryClient
 from src.dependencies.authors import AuthorServiceTxDep
 from src.dependencies.genres import GenreServiceTxDep
 from src.dependencies.users import UserServiceTxDep
 from src.infra.cache import Cache
-from src.infra.library import LibraryClient
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
 

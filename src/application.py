@@ -10,6 +10,7 @@ from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from src.clients.library import LibraryClient
 from src.config import Settings
 from src.controllers.authors import router as authors_router
 from src.controllers.genres import router as genres_router
@@ -18,13 +19,12 @@ from src.exceptions.handlers import register_exception_handlers
 from src.healthcheck.router import router as healthcheck_router
 from src.infra.cache import Cache
 from src.infra.db import build_session_factory
-from src.infra.library import LibraryClient
-from src.infra.resilience import CircuitBreaker, RetryPolicy
 from src.logging_config import setup_logging
 from src.middleware import LoggingMiddleware, RequestIDMiddleware
 from src.repository import CacheInvalidationRepo, UserMembershipRepo
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
+from src.utils.resilience import CircuitBreaker, RetryPolicy
 
 
 @asynccontextmanager

@@ -1,15 +1,15 @@
 import logging
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from uuid import UUID
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from src.exceptions import LibraryUnavailableError
-from src.infra.resilience import CircuitBreaker, CircuitOpenError, RetryPolicy, TransientError
+from src.exceptions import CircuitOpenError, ExternalServiceUnavailableError, TransientError
 from src.logging_config import request_id_var
 from src.middleware import REQUEST_ID_HEADER
 from src.schemas.library import LibraryMembership, LibraryMembershipCreate
+from src.utils.resilience import CircuitBreaker, RetryPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -30,30 +30,34 @@ class LibraryClient:
     async def issue_membership(self, user_id: UUID) -> LibraryMembership:
         payload = LibraryMembershipCreate(user_id=user_id)
         response = await self._request(
-            'POST', MEMBERSHIPS_PATH, json=payload.model_dump(mode='json')
+            HTTPMethod.POST, MEMBERSHIPS_PATH, json=payload.model_dump(mode='json')
         )
         if response.status_code == HTTPStatus.CONFLICT:
             logger.info('membership already issued, looking up: user_id=%s', user_id)
             existing = await self.find_membership(user_id)
             if existing is None:
-                raise LibraryUnavailableError(f'membership for user {user_id} conflicts but absent')
+                raise ExternalServiceUnavailableError(
+                    f'membership for user {user_id} conflicts but absent'
+                )
             return existing
         return self._parse(response, HTTPStatus.CREATED, _membership)
 
     async def get_membership(self, membership_id: UUID) -> LibraryMembership | None:
-        response = await self._request('GET', f'{MEMBERSHIPS_PATH}/{membership_id}')
+        response = await self._request(HTTPMethod.GET, f'{MEMBERSHIPS_PATH}/{membership_id}')
         if response.status_code == HTTPStatus.NOT_FOUND:
             return None
         return self._parse(response, HTTPStatus.OK, _membership)
 
     async def find_membership(self, user_id: UUID) -> LibraryMembership | None:
-        response = await self._request('GET', MEMBERSHIPS_PATH, params={'user_id': str(user_id)})
+        response = await self._request(
+            HTTPMethod.GET, MEMBERSHIPS_PATH, params={'user_id': str(user_id)}
+        )
         memberships = self._parse(response, HTTPStatus.OK, _memberships)
         return memberships[0] if memberships else None
 
     async def _request(
         self,
-        method: str,
+        method: HTTPMethod,
         url: str,
         *,
         json: object = None,
@@ -65,13 +69,13 @@ class LibraryClient:
         try:
             return await self.retry.call(lambda: self.breaker.call(send))
         except TransientError as exc:
-            raise LibraryUnavailableError(str(exc)) from exc
+            raise ExternalServiceUnavailableError(str(exc)) from exc
         except CircuitOpenError as exc:
-            raise LibraryUnavailableError(f'{method} {url}: {exc}') from exc
+            raise ExternalServiceUnavailableError(f'{method} {url}: {exc}') from exc
 
     async def _send(
         self,
-        method: str,
+        method: HTTPMethod,
         url: str,
         *,
         json: object,
@@ -94,10 +98,12 @@ class LibraryClient:
     ) -> T:
         request = response.request
         if response.status_code != expected:
-            raise LibraryUnavailableError(
+            raise ExternalServiceUnavailableError(
                 f'{request.method} {request.url}: unexpected status {response.status_code}'
             )
         try:
             return adapter.validate_json(response.content)
         except ValidationError as exc:
-            raise LibraryUnavailableError(f'{request.method} {request.url}: invalid body') from exc
+            raise ExternalServiceUnavailableError(
+                f'{request.method} {request.url}: invalid body'
+            ) from exc

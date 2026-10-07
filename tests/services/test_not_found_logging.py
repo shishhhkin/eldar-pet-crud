@@ -4,9 +4,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.clients.library import LibraryClient
 from src.exceptions import NotFoundError
 from src.infra.cache import Cache
-from src.infra.library import LibraryClient
 from src.repository import AuthorRepo, CacheInvalidationRepo, GenreRepo, UserRepo
 from src.services.author_service import AuthorService
 from src.services.base import BaseService

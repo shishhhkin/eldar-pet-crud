@@ -4,15 +4,9 @@ import random
 import time
 from collections.abc import Awaitable, Callable
 
+from src.exceptions import CircuitOpenError, TransientError
+
 logger = logging.getLogger(__name__)
-
-
-class TransientError(Exception):
-    pass
-
-
-class CircuitOpenError(Exception):
-    pass
 
 
 def backoff_delay(attempt: int, base: float, cap: float) -> float:

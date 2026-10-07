@@ -2,7 +2,7 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from src.infra.library import LibraryClient
+from src.clients.library import LibraryClient
 
 
 def get_library(request: Request) -> LibraryClient:

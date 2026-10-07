@@ -20,14 +20,14 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
+from src.clients.library import LibraryClient
 from src.infra.cache import Cache
-from src.infra.library import LibraryClient
-from src.infra.resilience import CircuitBreaker, RetryPolicy
 from src.models import Base, cache_invalidations
 from src.repository import CacheInvalidationRepo, UserMembershipRepo, UserRepo
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
 from src.services.user_registration import UserRegistration
+from src.utils.resilience import CircuitBreaker, RetryPolicy
 from tests.fake_library import BASE_URL, FakeLibrary
 
 CACHE_TTL_SECONDS = 60

@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from src.exceptions import LibraryUnavailableError
-from src.infra.library import LibraryClient
+from src.clients.library import LibraryClient
+from src.exceptions import ExternalServiceUnavailableError
 from src.middleware import REQUEST_ID_HEADER
 from tests.conftest import LIBRARY_BREAKER_THRESHOLD, LIBRARY_RETRY_ATTEMPTS
 from tests.fake_library import FakeLibrary
@@ -34,7 +34,7 @@ async def test_issue_conflict_without_membership_is_unavailable(
 ) -> None:
     fake_library.fail(status=HTTPStatus.CONFLICT)
 
-    with pytest.raises(LibraryUnavailableError):
+    with pytest.raises(ExternalServiceUnavailableError):
         await library.issue_membership(uuid4())
 
 
@@ -86,7 +86,7 @@ async def test_exhausted_retries_raise_unavailable(
 ) -> None:
     fake_library.fail(LIBRARY_RETRY_ATTEMPTS)
 
-    with pytest.raises(LibraryUnavailableError) as exc_info:
+    with pytest.raises(ExternalServiceUnavailableError) as exc_info:
         await library.issue_membership(uuid4())
 
     assert str(exc_info.value) == 'POST memberships: 503'
@@ -99,7 +99,7 @@ async def test_unexpected_response_is_not_retried(
 ) -> None:
     fake_library.fail(status=status)
 
-    with pytest.raises(LibraryUnavailableError):
+    with pytest.raises(ExternalServiceUnavailableError):
         await library.issue_membership(uuid4())
 
     assert len(fake_library.requests) == 1
@@ -111,7 +111,7 @@ async def test_open_breaker_stops_requests(
     fake_library.fail(LIBRARY_BREAKER_THRESHOLD * 2)
 
     for _ in range(3):
-        with pytest.raises(LibraryUnavailableError) as exc_info:
+        with pytest.raises(ExternalServiceUnavailableError) as exc_info:
             await library.issue_membership(uuid4())
 
     assert str(exc_info.value) == 'POST memberships: circuit is open'
@@ -119,7 +119,7 @@ async def test_open_breaker_stops_requests(
 
 
 async def test_unreachable_library_is_unavailable(unreachable_library: LibraryClient) -> None:
-    with pytest.raises(LibraryUnavailableError):
+    with pytest.raises(ExternalServiceUnavailableError):
         await unreachable_library.issue_membership(uuid4())
 
 

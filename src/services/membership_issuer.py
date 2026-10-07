@@ -7,9 +7,9 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.exceptions import LibraryUnavailableError
+from src.clients.library import LibraryClient
+from src.exceptions import ExternalServiceUnavailableError
 from src.infra.db import readonly_session, tx_session
-from src.infra.library import LibraryClient
 from src.mappers.users import to_membership_read
 from src.repository import UserMembershipRepo
 from src.schemas.library import LibraryMembership
@@ -36,7 +36,7 @@ class MembershipIssuer:
     async def issue(self, user_id: UUID) -> MembershipRead | None:
         try:
             membership = await self.library.issue_membership(user_id)
-        except LibraryUnavailableError as exc:
+        except ExternalServiceUnavailableError as exc:
             logger.warning('membership issue deferred: user_id=%s (%s)', user_id, exc)
             return None
         return await self.store(membership)
