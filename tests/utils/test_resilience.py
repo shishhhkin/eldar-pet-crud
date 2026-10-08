@@ -3,7 +3,7 @@ import time
 import pytest
 
 from src.exceptions import TransientError
-from src.utils.resilience import RetryPolicy, backoff_delay
+from src.utils.resilience import RetryPolicy, backoff_delay, exponential_backoff
 
 ATTEMPTS = 3
 BASE_DELAY = 0.001
@@ -29,6 +29,21 @@ class Flaky:
 @pytest.fixture
 def retry() -> RetryPolicy:
     return RetryPolicy(ATTEMPTS, BASE_DELAY, MAX_DELAY)
+
+
+@pytest.mark.parametrize('attempt', range(6))
+def test_exponential_backoff_doubles_up_to_cap(attempt: int) -> None:
+    assert exponential_backoff(attempt, BASE_DELAY, MAX_DELAY) == min(
+        MAX_DELAY, BASE_DELAY * 2**attempt
+    )
+
+
+def test_exponential_backoff_stays_at_cap_for_huge_attempt() -> None:
+    assert exponential_backoff(10**9, BASE_DELAY, MAX_DELAY) == MAX_DELAY
+
+
+def test_exponential_backoff_starts_at_cap_when_base_exceeds_it() -> None:
+    assert exponential_backoff(0, MAX_DELAY * 2, MAX_DELAY) == MAX_DELAY
 
 
 @pytest.mark.parametrize('attempt', range(6))

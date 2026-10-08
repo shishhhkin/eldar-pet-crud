@@ -1,3 +1,4 @@
+import asyncio
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -25,7 +26,12 @@ from src.application import get_app
 from src.clients.library import LibraryClient
 from src.infra.cache import Cache
 from src.models import Base, cache_invalidations
-from src.repository import CacheInvalidationRepo, UserMembershipRepo, UserRepo
+from src.repository import (
+    CacheInvalidationRepo,
+    MembershipRequestRepo,
+    UserMembershipRepo,
+    UserRepo,
+)
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
 from src.services.user_registration import UserRegistration
@@ -45,8 +51,13 @@ LIBRARY_RETRY_BASE_DELAY_SECONDS = 0.001
 LIBRARY_RETRY_MAX_DELAY_SECONDS = 0.005
 LIBRARY_BREAKER_THRESHOLD = 5
 LIBRARY_BREAKER_RESET_SECONDS = 60
-MEMBERSHIP_SYNC_BATCH_SIZE = 100
+MEMBERSHIP_SYNC_PASS_LIMIT = 100
 MEMBERSHIP_SYNC_INTERVAL_SECONDS = 0.05
+MEMBERSHIP_SYNC_LEASE_SECONDS = 60
+MEMBERSHIP_RETRY_BASE_DELAY_SECONDS = 10
+MEMBERSHIP_RETRY_MAX_DELAY_SECONDS = 600
+LOCK_WAIT_TIMEOUT_SECONDS = 5.0
+LOCK_WAIT_POLL_SECONDS = 0.01
 
 
 def closed_port() -> int:
@@ -169,11 +180,11 @@ def breaker() -> CircuitBreaker:
     )
 
 
-def build_library(http: httpx.AsyncClient, breaker: CircuitBreaker) -> LibraryClient:
+def make_library(http: httpx.AsyncClient, breaker: CircuitBreaker) -> LibraryClient:
     retry = RetryPolicy(
         LIBRARY_RETRY_ATTEMPTS, LIBRARY_RETRY_BASE_DELAY_SECONDS, LIBRARY_RETRY_MAX_DELAY_SECONDS
     )
-    return LibraryClient(http, retry, breaker)
+    return LibraryClient(http, retry, breaker, LIBRARY_TIMEOUT_SECONDS)
 
 
 @pytest.fixture
@@ -182,7 +193,7 @@ async def library(
 ) -> AsyncIterator[LibraryClient]:
     transport = httpx.MockTransport(fake_library.handler)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as http:
-        yield build_library(http, breaker)
+        yield make_library(http, breaker)
 
 
 @pytest.fixture
@@ -191,18 +202,24 @@ async def unreachable_library(breaker: CircuitBreaker) -> AsyncIterator[LibraryC
     async with httpx.AsyncClient(
         base_url=base_url, timeout=LIBRARY_TIMEOUT_SECONDS, trust_env=False
     ) as http:
-        yield build_library(http, breaker)
+        yield make_library(http, breaker)
 
 
-def _issuer(
-    session_factory: async_sessionmaker[AsyncSession], library: LibraryClient
+def make_issuer(
+    session_factory: async_sessionmaker[AsyncSession],
+    library: LibraryClient,
+    pass_limit: int = MEMBERSHIP_SYNC_PASS_LIMIT,
 ) -> MembershipIssuer:
     return MembershipIssuer(
         session_factory,
         UserMembershipRepo,
+        MembershipRequestRepo,
         library,
-        MEMBERSHIP_SYNC_BATCH_SIZE,
+        pass_limit,
         MEMBERSHIP_SYNC_INTERVAL_SECONDS,
+        MEMBERSHIP_SYNC_LEASE_SECONDS,
+        MEMBERSHIP_RETRY_BASE_DELAY_SECONDS,
+        MEMBERSHIP_RETRY_MAX_DELAY_SECONDS,
     )
 
 
@@ -210,21 +227,21 @@ def _issuer(
 def membership_issuer(
     session_factory: async_sessionmaker[AsyncSession], library: LibraryClient
 ) -> MembershipIssuer:
-    return _issuer(session_factory, library)
+    return make_issuer(session_factory, library)
 
 
 @pytest.fixture
 def unreachable_membership_issuer(
     session_factory: async_sessionmaker[AsyncSession], unreachable_library: LibraryClient
 ) -> MembershipIssuer:
-    return _issuer(session_factory, unreachable_library)
+    return make_issuer(session_factory, unreachable_library)
 
 
 @pytest.fixture
 def user_registration(
     session_factory: async_sessionmaker[AsyncSession], membership_issuer: MembershipIssuer
 ) -> UserRegistration:
-    return UserRegistration(session_factory, UserRepo, membership_issuer)
+    return UserRegistration(session_factory, UserRepo, MembershipRequestRepo, membership_issuer)
 
 
 @asynccontextmanager
@@ -236,7 +253,7 @@ async def _client(
     app.state.cache = cache
     app.state.outbox = _outbox(session_factory, cache)
     app.state.library = library
-    app.state.membership_issuer = _issuer(session_factory, library)
+    app.state.membership_issuer = make_issuer(session_factory, library)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test/v1') as ac:
@@ -275,6 +292,16 @@ async def outbox_keys(session_factory: async_sessionmaker[AsyncSession]) -> list
     async with session_factory() as session:
         stmt = select(cache_invalidations.c.key).order_by(cache_invalidations.c.id)
         return list((await session.execute(stmt)).scalars().all())
+
+
+async def wait_for_lock_waiter(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    stmt = text("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")
+    async with asyncio.timeout(LOCK_WAIT_TIMEOUT_SECONDS):
+        while True:
+            async with session_factory() as session:
+                if await session.scalar(stmt):
+                    return
+            await asyncio.sleep(LOCK_WAIT_POLL_SECONDS)
 
 
 @pytest.fixture

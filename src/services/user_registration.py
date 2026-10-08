@@ -7,7 +7,7 @@ from src.exceptions import AlreadyExistsError
 from src.infra.db import tx_session
 from src.mappers.users import to_user_profile_model, to_user_read
 from src.models.users import UserModel
-from src.repository import UserRepo
+from src.repository import MembershipRequestRepo, UserRepo
 from src.schemas.users import UserCreate, UserRead
 from src.services.membership_issuer import MembershipIssuer
 
@@ -19,15 +19,18 @@ class UserRegistration:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         repo_factory: Callable[[AsyncSession], UserRepo],
+        requests_factory: Callable[[AsyncSession], MembershipRequestRepo],
         issuer: MembershipIssuer,
     ) -> None:
         self.session_factory = session_factory
         self.repo_factory = repo_factory
+        self.requests_factory = requests_factory
         self.issuer = issuer
 
     async def register(self, payload: UserCreate) -> UserRead:
         async with tx_session(self.session_factory) as session:
             user = await self._create(self.repo_factory(session), payload)
+            await self.requests_factory(session).add(user.id, self.issuer.lease)
         membership = await self.issuer.issue(user.id)
         return to_user_read(user, membership)
 

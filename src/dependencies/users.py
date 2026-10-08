@@ -10,7 +10,11 @@ from src.dependencies.cache_invalidations import (
 from src.dependencies.db import SessionDep, SessionFactoryDep, TxSessionDep
 from src.dependencies.library import LibraryClientDep
 from src.dependencies.membership_issuer import MembershipIssuerDep
-from src.repository import UserRepo
+from src.dependencies.membership_requests import (
+    MembershipRequestRepoDep,
+    MembershipRequestRepoTxDep,
+)
+from src.repository import MembershipRequestRepo, UserRepo
 from src.services.user_registration import UserRegistration
 from src.services.user_service import UserService
 
@@ -33,8 +37,9 @@ def _user_service(
     cache: CacheDep,
     library: LibraryClientDep,
     issuer: MembershipIssuerDep,
+    requests: MembershipRequestRepoDep,
 ) -> UserService:
-    return UserService(repo, invalidations, cache, library, issuer)
+    return UserService(repo, invalidations, cache, library, issuer, requests)
 
 
 def _user_service_tx(
@@ -43,14 +48,15 @@ def _user_service_tx(
     cache: CacheDep,
     library: LibraryClientDep,
     issuer: MembershipIssuerDep,
+    requests: MembershipRequestRepoTxDep,
 ) -> UserService:
-    return UserService(repo, invalidations, cache, library, issuer)
+    return UserService(repo, invalidations, cache, library, issuer, requests)
 
 
 def _user_registration(
     session_factory: SessionFactoryDep, issuer: MembershipIssuerDep
 ) -> UserRegistration:
-    return UserRegistration(session_factory, UserRepo, issuer)
+    return UserRegistration(session_factory, UserRepo, MembershipRequestRepo, issuer)
 
 
 UserServiceDep = Annotated[UserService, Depends(_user_service)]

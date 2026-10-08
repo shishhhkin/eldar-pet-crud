@@ -7,6 +7,9 @@ sync:
 run:
     uv run python -m src.main
 
+worker:
+    uv run python -m src.worker
+
 test *args:
     uv run pytest {{args}}
 

@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.clients.library import LibraryClient
 from src.exceptions import NotFoundError
 from src.infra.cache import Cache
-from src.repository import AuthorRepo, CacheInvalidationRepo, GenreRepo, UserRepo
+from src.repository import (
+    AuthorRepo,
+    CacheInvalidationRepo,
+    GenreRepo,
+    MembershipRequestRepo,
+    UserRepo,
+)
 from src.services.author_service import AuthorService
 from src.services.base import BaseService
 from src.services.genre_service import GenreService
@@ -28,7 +34,14 @@ def services(
     return {
         'Author': AuthorService(AuthorRepo(db_session), invalidations, cache),
         'Genre': GenreService(GenreRepo(db_session), invalidations, cache),
-        'User': UserService(UserRepo(db_session), invalidations, cache, library, membership_issuer),
+        'User': UserService(
+            UserRepo(db_session),
+            invalidations,
+            cache,
+            library,
+            membership_issuer,
+            MembershipRequestRepo(db_session),
+        ),
     }
 
 

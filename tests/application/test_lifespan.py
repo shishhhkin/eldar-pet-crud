@@ -13,8 +13,7 @@ from testcontainers.community.redis import RedisContainer
 from src.application import get_app
 from src.infra.cache import TOMBSTONE
 from src.infra.db import tx_session
-from src.models.users import UserModel
-from src.repository import CacheInvalidationRepo, UserRepo
+from src.repository import CacheInvalidationRepo
 from tests.conftest import PauseRedisWrites, closed_port, outbox_keys
 
 FAST_RETRY_SECONDS = 0.05
@@ -38,7 +37,6 @@ def containers_env(
     monkeypatch.setenv('redis_port', str(redis_container.get_exposed_port(6379)))
     monkeypatch.setenv('cache_invalidation_retry_seconds', str(FAST_RETRY_SECONDS))
     monkeypatch.setenv('library_url', f'http://127.0.0.1:{closed_port()}/v1')
-    monkeypatch.setenv('membership_sync_interval_seconds', str(FAST_RETRY_SECONDS))
 
 
 @pytest.fixture
@@ -144,14 +142,3 @@ async def test_started_app_creates_user_while_library_unreachable(
 
     assert response.status_code == 201
     assert response.json()['membership'] is None
-
-
-async def test_shutdown_completes_while_library_unreachable(
-    app: FastAPI, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    async with tx_session(session_factory) as session:
-        await UserRepo(session).save(UserModel(username='alice', email='alice@example.com'))
-
-    async with asyncio.timeout(SHUTDOWN_TIMEOUT_SECONDS):
-        async with app.router.lifespan_context(app):
-            await asyncio.sleep(FAST_RETRY_SECONDS * 2)

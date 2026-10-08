@@ -10,7 +10,7 @@ from src.exceptions import (
 from src.infra.cache import Cache
 from src.mappers.users import apply_user_update, to_user_read
 from src.models.users import UserModel
-from src.repository import CacheInvalidationRepo, UserRepo
+from src.repository import CacheInvalidationRepo, MembershipRequestRepo, UserRepo
 from src.schemas.users import UserRead, UserUpdate
 from src.services.base import BaseService, Cacheable
 from src.services.membership_issuer import MembershipIssuer
@@ -30,10 +30,12 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         cache: Cache,
         library: LibraryClient,
         issuer: MembershipIssuer,
+        requests: MembershipRequestRepo,
     ) -> None:
         super().__init__(repo, invalidations, cache)
         self.library = library
         self.issuer = issuer
+        self.requests = requests
 
     async def _read(self, obj: UserModel) -> tuple[UserRead, Cacheable]:
         if obj.membership is None:
@@ -75,6 +77,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         return self.read_model.model_validate(user)
 
     async def delete(self, user_id: UUID) -> None:
+        await self.requests.cancel(user_id)
         user = await self._get_or_raise(user_id)
         user.is_deleted = True
         if user.profile is not None:

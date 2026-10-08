@@ -1,4 +1,5 @@
-from http import HTTPStatus
+import asyncio
+from http import HTTPMethod, HTTPStatus
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,8 @@ from src.exceptions import ExternalServiceBadResponseError, ExternalServiceUnava
 from src.middleware import REQUEST_ID_HEADER
 from tests.conftest import LIBRARY_BREAKER_THRESHOLD, LIBRARY_RETRY_ATTEMPTS
 from tests.fake_library import FakeLibrary
+
+WAIT_TIMEOUT_SECONDS = 5.0
 
 
 async def test_issue_membership(library: LibraryClient, fake_library: FakeLibrary) -> None:
@@ -104,6 +107,20 @@ async def test_retry_after_lost_response_does_not_duplicate(
 
     membership = await library.issue_membership(user_id)
 
+    assert fake_library.memberships == {user_id: membership}
+    assert [request.method for request in fake_library.requests] == ['POST', 'POST']
+
+
+async def test_attempt_over_deadline_is_retried(
+    library: LibraryClient, fake_library: FakeLibrary
+) -> None:
+    user_id = uuid4()
+    hold = fake_library.hold_next(HTTPMethod.POST)
+
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        membership = await library.issue_membership(user_id)
+
+    assert hold.reached.is_set()
     assert fake_library.memberships == {user_id: membership}
     assert [request.method for request in fake_library.requests] == ['POST', 'POST']
 

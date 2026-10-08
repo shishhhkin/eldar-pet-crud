@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from uuid import UUID, uuid4
 
 import httpx
@@ -21,6 +21,7 @@ class Fault(StrEnum):
 
 @dataclass
 class Hold:
+    method: HTTPMethod
     reached: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -46,8 +47,8 @@ class FakeLibrary:
     def commit_then_timeout(self) -> None:
         self._faults.append(Fault.COMMIT_THEN_TIMEOUT)
 
-    def hold_next_get(self) -> Hold:
-        self._hold = Hold()
+    def hold_next(self, method: HTTPMethod) -> Hold:
+        self._hold = Hold(method)
         return self._hold
 
     def issue(self, user_id: UUID) -> LibraryMembership:
@@ -78,7 +79,7 @@ class FakeLibrary:
         if isinstance(fault, httpx.Response):
             return fault
         response = self._route(request)
-        if request.method == 'GET' and self._hold is not None:
+        if self._hold is not None and request.method == self._hold.method:
             hold, self._hold = self._hold, None
             hold.reached.set()
             await hold.release.wait()

@@ -8,8 +8,17 @@ from src.exceptions import TransientError
 logger = logging.getLogger(__name__)
 
 
+def exponential_backoff(attempt: int, base: float, cap: float) -> float:
+    delay = base
+    for _ in range(attempt):
+        if delay >= cap:
+            break
+        delay *= 2
+    return min(delay, cap)
+
+
 def backoff_delay(attempt: int, base: float, cap: float) -> float:
-    return random.uniform(0, min(cap, base * 2**attempt))
+    return random.uniform(0, exponential_backoff(attempt, base, cap))
 
 
 class RetryPolicy:

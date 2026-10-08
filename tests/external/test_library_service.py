@@ -1,4 +1,3 @@
-import os
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
@@ -8,13 +7,10 @@ from aiobreaker import CircuitBreaker
 
 from src.clients.library import LibraryClient
 from src.exceptions import ExternalServiceBadResponseError
-from tests.conftest import LIBRARY_TIMEOUT_SECONDS, build_library
+from tests.conftest import LIBRARY_TIMEOUT_SECONDS, make_library
+from tests.external import EXTERNAL_LIBRARY_URL, requires_library
 
-EXTERNAL_LIBRARY_URL = os.environ.get('EXTERNAL_LIBRARY_URL')
-
-pytestmark = pytest.mark.skipif(
-    EXTERNAL_LIBRARY_URL is None, reason='EXTERNAL_LIBRARY_URL is not set'
-)
+pytestmark = requires_library
 
 
 @pytest.fixture
@@ -22,7 +18,7 @@ async def external_library(breaker: CircuitBreaker) -> AsyncIterator[LibraryClie
     async with httpx.AsyncClient(
         base_url=str(EXTERNAL_LIBRARY_URL), timeout=LIBRARY_TIMEOUT_SECONDS, trust_env=False
     ) as http:
-        yield build_library(http, breaker)
+        yield make_library(http, breaker)
 
 
 async def test_issue_returns_membership_for_user(external_library: LibraryClient) -> None:

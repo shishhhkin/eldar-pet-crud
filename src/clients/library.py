@@ -1,3 +1,4 @@
+import asyncio
 from http import HTTPMethod, HTTPStatus
 from uuid import UUID
 
@@ -36,11 +37,16 @@ def retry_after_seconds(response: httpx.Response) -> float | None:
 
 class LibraryClient:
     def __init__(
-        self, http: httpx.AsyncClient, retry: RetryPolicy, breaker: CircuitBreaker
+        self,
+        http: httpx.AsyncClient,
+        retry: RetryPolicy,
+        breaker: CircuitBreaker,
+        timeout_seconds: float,
     ) -> None:
         self.http = http
         self.retry = retry
         self.breaker = breaker
+        self.timeout_seconds = timeout_seconds
 
     async def issue_membership(self, user_id: UUID) -> LibraryMembership:
         payload = LibraryMembershipCreate(user_id=user_id)
@@ -71,8 +77,9 @@ class LibraryClient:
         rid = request_id_var.get()
         headers = {REQUEST_ID_HEADER: rid} if rid else None
         try:
-            response = await self.http.request(method, url, json=json, headers=headers)
-        except httpx.TransportError as exc:
+            async with asyncio.timeout(self.timeout_seconds):
+                response = await self.http.request(method, url, json=json, headers=headers)
+        except (httpx.TransportError, TimeoutError) as exc:
             raise TransientError(f'{method} {url}: {type(exc).__name__}') from exc
         if response.status_code in RETRYABLE_STATUSES:
             raise TransientError(

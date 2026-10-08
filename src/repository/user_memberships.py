@@ -1,12 +1,8 @@
-from collections.abc import Sequence
-from uuid import UUID
-
-from sqlalchemy import case, exists, func, select
+from sqlalchemy import case, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user_memberships import UserMembershipModel
-from src.models.users import UserModel
 from src.repository.base import Repo
 from src.schemas.library import LibraryMembership
 
@@ -38,13 +34,3 @@ class UserMembershipRepo(Repo[UserMembershipModel]):
         ).returning(UserMembershipModel)
         result = await self.session.scalars(upsert, execution_options={'populate_existing': True})
         return result.one()
-
-    async def pending_user_ids(self, limit: int) -> Sequence[UUID]:
-        has_membership = exists().where(UserMembershipModel.user_id == UserModel.id)
-        stmt = (
-            select(UserModel.id)
-            .where(UserModel.is_deleted.is_(False), ~has_membership)
-            .order_by(UserModel.id)
-            .limit(limit)
-        )
-        return (await self.session.execute(stmt)).scalars().all()

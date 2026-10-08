@@ -1,6 +1,8 @@
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import suppress
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.clients.library import LibraryClient
 from src.exceptions import ExternalServiceBadResponseError, ExternalServiceUnavailableError
-from src.infra.db import readonly_session, tx_session
+from src.infra.db import tx_session
 from src.mappers.users import to_membership_read
-from src.repository import UserMembershipRepo
+from src.repository import MembershipRequestRepo, UserMembershipRepo
 from src.schemas.library import LibraryMembership
 from src.schemas.users import MembershipRead
+from src.utils.resilience import exponential_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -22,47 +25,96 @@ class MembershipIssuer:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         repo_factory: Callable[[AsyncSession], UserMembershipRepo],
+        requests_factory: Callable[[AsyncSession], MembershipRequestRepo],
         library: LibraryClient,
-        batch_size: int,
+        pass_limit: int,
         interval_seconds: float,
+        lease_seconds: float,
+        retry_base_delay_seconds: float,
+        retry_max_delay_seconds: float,
     ) -> None:
         self.session_factory = session_factory
         self.repo_factory = repo_factory
+        self.requests_factory = requests_factory
         self.library = library
-        self.batch_size = batch_size
+        self.pass_limit = pass_limit
         self.interval_seconds = interval_seconds
+        self.lease = timedelta(seconds=lease_seconds)
+        self.retry_base_delay_seconds = retry_base_delay_seconds
+        self.retry_max_delay_seconds = retry_max_delay_seconds
+        self.stopping = asyncio.Event()
+
+    def stop(self) -> None:
+        self.stopping.set()
 
     async def issue(self, user_id: UUID) -> MembershipRead | None:
         try:
-            membership = await self.library.issue_membership(user_id)
-            return await self.store(membership)
-        except ExternalServiceUnavailableError as exc:
-            logger.warning('membership issue deferred: user_id=%s (%s)', user_id, exc)
-        except ExternalServiceBadResponseError as exc:
-            logger.error('membership issue rejected: user_id=%s (%s)', user_id, exc)
+            return await self._attempt(user_id, 0)
+        except ExternalServiceUnavailableError:
+            return None
         except SQLAlchemyError, OSError:
-            logger.warning('membership copy not stored: user_id=%s', user_id, exc_info=True)
-        return None
+            logger.warning('membership request not settled: user_id=%s', user_id, exc_info=True)
+            return None
 
     async def store(self, membership: LibraryMembership) -> MembershipRead:
         async with tx_session(self.session_factory) as session:
             stored = await self.repo_factory(session).store(membership)
             return to_membership_read(stored)
 
-    async def sync_pending(self) -> int:
-        async with readonly_session(self.session_factory) as session:
-            user_ids = await self.repo_factory(session).pending_user_ids(self.batch_size)
-        issued = 0
-        for user_id in user_ids:
-            if await self.issue(user_id) is None:
+    async def process_pass(self) -> int:
+        processed = 0
+        while processed < self.pass_limit and not self.stopping.is_set():
+            async with tx_session(self.session_factory) as session:
+                request = await self.requests_factory(session).claim(self.lease)
+            if request is None:
                 break
-            issued += 1
-        return issued
+            processed += 1
+            try:
+                await self._attempt(request.user_id, request.attempts)
+            except ExternalServiceUnavailableError:
+                break
+        return processed
 
     async def run(self) -> None:
-        while True:
-            await asyncio.sleep(self.interval_seconds)
+        while not self.stopping.is_set():
             try:
-                await self.sync_pending()
+                await self.process_pass()
             except Exception:
                 logger.exception('membership sync failed')
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self.stopping.wait(), self.interval_seconds)
+
+    async def _attempt(self, user_id: UUID, attempts: int) -> MembershipRead | None:
+        try:
+            membership = await self.library.issue_membership(user_id)
+        except ExternalServiceUnavailableError as exc:
+            logger.warning('membership issue deferred: user_id=%s (%s)', user_id, exc)
+            async with tx_session(self.session_factory) as session:
+                await self.requests_factory(session).release(user_id)
+            raise
+        except ExternalServiceBadResponseError as exc:
+            attempts += 1
+            logger.error(
+                'membership issue rejected: user_id=%s attempts=%d (%s)',
+                user_id,
+                attempts,
+                exc,
+            )
+            delay = exponential_backoff(
+                attempts, self.retry_base_delay_seconds, self.retry_max_delay_seconds
+            )
+            async with tx_session(self.session_factory) as session:
+                await self.requests_factory(session).reschedule(
+                    user_id, attempts, timedelta(seconds=delay)
+                )
+            return None
+        async with tx_session(self.session_factory) as session:
+            if not await self.requests_factory(session).complete(user_id):
+                logger.warning(
+                    'membership issued for cancelled request: user_id=%s membership_id=%s',
+                    user_id,
+                    membership.id,
+                )
+                return None
+            stored = await self.repo_factory(session).store(membership)
+            return to_membership_read(stored)
