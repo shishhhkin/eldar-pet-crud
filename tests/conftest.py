@@ -30,11 +30,9 @@ from src.repository import (
     CacheInvalidationRepo,
     MembershipRequestRepo,
     UserMembershipRepo,
-    UserRepo,
 )
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_issuer import MembershipIssuer
-from src.services.user_registration import UserRegistration
 from src.utils.resilience import RetryPolicy
 from tests.fake_library import BASE_URL, FakeLibrary
 
@@ -235,13 +233,6 @@ def unreachable_membership_issuer(
     session_factory: async_sessionmaker[AsyncSession], unreachable_library: LibraryClient
 ) -> MembershipIssuer:
     return make_issuer(session_factory, unreachable_library)
-
-
-@pytest.fixture
-def user_registration(
-    session_factory: async_sessionmaker[AsyncSession], membership_issuer: MembershipIssuer
-) -> UserRegistration:
-    return UserRegistration(session_factory, UserRepo, MembershipRequestRepo, membership_issuer)
 
 
 @asynccontextmanager

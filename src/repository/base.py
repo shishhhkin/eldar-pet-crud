@@ -45,9 +45,6 @@ class Repo[ModelT: Base]:
             await self.session.refresh(obj, attribute_names=list(eager_load))
         return obj
 
-    async def release(self) -> None:
-        await self.session.close()
-
     async def advisory_lock(self, column: str, value: str) -> None:
         namespace = f'{self.model.__tablename__}.{column}'
         await self.session.execute(

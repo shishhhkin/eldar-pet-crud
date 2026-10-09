@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.clients.library import LibraryClient
 from src.exceptions import NotFoundError
 from src.infra.cache import Cache
+from src.infra.uow import UnitOfWork
 from src.repository import (
     AuthorRepo,
     CacheInvalidationRepo,
@@ -41,6 +42,7 @@ def services(
             library,
             membership_issuer,
             MembershipRequestRepo(db_session),
+            UnitOfWork(db_session),
         ),
     }
 

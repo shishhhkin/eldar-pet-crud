@@ -8,10 +8,11 @@ from src.exceptions import (
     ExternalServiceUnavailableError,
 )
 from src.infra.cache import Cache
-from src.mappers.users import apply_user_update, to_user_read
+from src.infra.uow import UnitOfWork
+from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
 from src.repository import CacheInvalidationRepo, MembershipRequestRepo, UserRepo
-from src.schemas.users import UserRead, UserUpdate
+from src.schemas.users import UserCreate, UserRead, UserUpdate
 from src.services.base import BaseService, Cacheable
 from src.services.membership_issuer import MembershipIssuer
 
@@ -31,17 +32,41 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         library: LibraryClient,
         issuer: MembershipIssuer,
         requests: MembershipRequestRepo,
+        uow: UnitOfWork,
     ) -> None:
         super().__init__(repo, invalidations, cache)
         self.library = library
         self.issuer = issuer
         self.requests = requests
+        self.uow = uow
+
+    async def create(self, payload: UserCreate) -> UserRead:
+        async with self.uow:
+            user = await self._create(payload)
+            await self.requests.add(user.id, self.issuer.lease)
+        membership = await self.issuer.issue(user.id)
+        return to_user_read(user, membership)
+
+    async def _create(self, payload: UserCreate) -> UserModel:
+        await self.repo.advisory_lock('username', payload.username)
+        await self.repo.advisory_lock('email', payload.email)
+        user = await self.repo.create_ignoring_conflict(
+            username=payload.username, email=payload.email
+        )
+        if user is None:
+            logger.info(
+                'user already exists: username=%s email=%s', payload.username, payload.email
+            )
+            raise AlreadyExistsError('User with this username or email already exists')
+        user.profile = to_user_profile_model(payload.profile)
+        await self.repo.save(user, 'profile')
+        return user
 
     async def _read(self, obj: UserModel) -> tuple[UserRead, Cacheable]:
         if obj.membership is None:
             return self.read_model.model_validate(obj), False
         membership_id = obj.membership.id
-        await self.repo.release()
+        await self.uow.commit()
         try:
             membership = await self.library.get_membership(membership_id)
         except ExternalServiceUnavailableError as exc:

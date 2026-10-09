@@ -34,6 +34,7 @@ async def test_write_services_record_invalidations_in_data_session(
             'genres': genres.invalidations.session is genres.repo.session,
             'users': users.invalidations.session is users.repo.session,
             'user_requests': users.requests.session is users.repo.session,
+            'user_uow': users.uow.session is users.repo.session,
         }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
@@ -44,4 +45,5 @@ async def test_write_services_record_invalidations_in_data_session(
         'genres': True,
         'users': True,
         'user_requests': True,
+        'user_uow': True,
     }
