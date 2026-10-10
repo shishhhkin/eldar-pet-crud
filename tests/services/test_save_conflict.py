@@ -4,14 +4,17 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.clients.library import LibraryClient
 from src.exceptions import AlreadyExistsError
 from src.infra.cache import Cache
+from src.infra.uow import UnitOfWork
 from src.models.genres import GenreModel
-from src.repository import CacheInvalidationRepo, GenreRepo, Repo, UserRepo
+from src.repository import CacheInvalidationRepo, GenreRepo, MembershipRequestRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate
 from src.schemas.moods import MoodPayload
 from src.schemas.users import UserCreate, UserProfilePayload
 from src.services.genre_service import GenreService
+from src.services.membership_issuer import MembershipIssuer
 from src.services.user_service import UserService
 
 
@@ -34,8 +37,21 @@ def genre_service(db_session: AsyncSession, cache: Cache) -> GenreService:
 
 
 @pytest.fixture
-def user_service(db_session: AsyncSession, cache: Cache) -> UserService:
-    return UserService(UserRepo(db_session), CacheInvalidationRepo(db_session), cache)
+def user_service(
+    db_session: AsyncSession,
+    cache: Cache,
+    library: LibraryClient,
+    membership_issuer: MembershipIssuer,
+) -> UserService:
+    return UserService(
+        UserRepo(db_session),
+        CacheInvalidationRepo(db_session),
+        cache,
+        library,
+        membership_issuer,
+        MembershipRequestRepo(db_session),
+        UnitOfWork(db_session),
+    )
 
 
 async def test_repo_save_propagates_raw_integrity_error(genre_repo: Repo[GenreModel]) -> None:
@@ -64,7 +80,9 @@ async def test_duplicate_genre_name_raises_already_exists(
     assert any('нуар' in record.getMessage() for record in records)
 
 
-async def test_duplicate_username_raises_already_exists(user_service: UserService) -> None:
+async def test_duplicate_username_raises_already_exists(
+    user_service: UserService,
+) -> None:
     await user_service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:
@@ -73,7 +91,9 @@ async def test_duplicate_username_raises_already_exists(user_service: UserServic
     assert str(excinfo.value) == 'User with this username or email already exists'
 
 
-async def test_duplicate_email_raises_already_exists(user_service: UserService) -> None:
+async def test_duplicate_email_raises_already_exists(
+    user_service: UserService,
+) -> None:
     await user_service.create(_user_payload())
 
     with pytest.raises(AlreadyExistsError) as excinfo:

@@ -1,12 +1,20 @@
 import logging
 from uuid import UUID
 
-from src.exceptions import AlreadyExistsError
-from src.mappers.users import apply_user_update, to_user_profile_model
+from src.clients.library import LibraryClient
+from src.exceptions import (
+    AlreadyExistsError,
+    ExternalServiceBadResponseError,
+    ExternalServiceUnavailableError,
+)
+from src.infra.cache import Cache
+from src.infra.uow import UnitOfWork
+from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
-from src.repository import UserRepo
+from src.repository import CacheInvalidationRepo, MembershipRequestRepo, UserRepo
 from src.schemas.users import UserCreate, UserRead, UserUpdate
-from src.services.base import BaseService
+from src.services.base import BaseService, Cacheable
+from src.services.membership_issuer import MembershipIssuer
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +24,30 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
     cache_namespace = 'user'
     read_model = UserRead
 
+    def __init__(
+        self,
+        repo: UserRepo,
+        invalidations: CacheInvalidationRepo,
+        cache: Cache,
+        library: LibraryClient,
+        issuer: MembershipIssuer,
+        requests: MembershipRequestRepo,
+        uow: UnitOfWork,
+    ) -> None:
+        super().__init__(repo, invalidations, cache)
+        self.library = library
+        self.issuer = issuer
+        self.requests = requests
+        self.uow = uow
+
     async def create(self, payload: UserCreate) -> UserRead:
+        async with self.uow:
+            user = await self._create(payload)
+            await self.requests.add(user.id, self.issuer.lease)
+        membership = await self.issuer.issue(user.id)
+        return to_user_read(user, membership)
+
+    async def _create(self, payload: UserCreate) -> UserModel:
         await self.repo.advisory_lock('username', payload.username)
         await self.repo.advisory_lock('email', payload.email)
         user = await self.repo.create_ignoring_conflict(
@@ -29,7 +60,27 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
             raise AlreadyExistsError('User with this username or email already exists')
         user.profile = to_user_profile_model(payload.profile)
         await self.repo.save(user, 'profile')
-        return self.read_model.model_validate(user)
+        return user
+
+    async def _read(self, obj: UserModel) -> tuple[UserRead, Cacheable]:
+        if obj.membership is None:
+            return self.read_model.model_validate(obj), False
+        membership_id = obj.membership.id
+        await self.uow.commit()
+        try:
+            membership = await self.library.get_membership(membership_id)
+        except ExternalServiceUnavailableError as exc:
+            logger.warning('membership not fetched: user_id=%s (%s)', obj.id, exc)
+            raise
+        except ExternalServiceBadResponseError as exc:
+            logger.error(
+                'membership not fetched: user_id=%s membership_id=%s (%s)',
+                obj.id,
+                membership_id,
+                exc,
+            )
+            raise
+        return to_user_read(obj, await self.issuer.store(membership)), True
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:
         user = await self._get_or_raise(user_id)
@@ -51,9 +102,12 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         return self.read_model.model_validate(user)
 
     async def delete(self, user_id: UUID) -> None:
+        await self.requests.cancel(user_id)
         user = await self._get_or_raise(user_id)
         user.is_deleted = True
         if user.profile is not None:
             user.profile.is_deleted = True
+        if user.membership is not None:
+            user.membership.is_deleted = True
         await self.repo.save(user)
         await self._invalidate(user_id)

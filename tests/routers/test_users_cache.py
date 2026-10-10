@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infra.cache import TOMBSTONE
 from src.models.users import UserModel
 from src.schemas.users import UserRead
+from tests.conftest import without_synced_at
 
 SERVICE_LOGGER = 'src.services.base'
 NEW_USERNAME = 'bob'
@@ -89,7 +90,7 @@ async def test_unusable_cached_payload_is_overwritten(
         response = await client.get(f'/users/{created["id"]}')
 
     assert response.status_code == 200
-    assert response.json() == created
+    assert without_synced_at(response.json()) == without_synced_at(created)
 
     records = [record for record in caplog.records if record.name == SERVICE_LOGGER]
     assert records

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.models.base import Base
 
 if TYPE_CHECKING:
+    from src.models.user_memberships import UserMembershipModel
     from src.models.user_profiles import UserProfileModel
 
 
@@ -32,6 +33,12 @@ class UserModel(Base):
     email: Mapped[str] = mapped_column(sa.String(255), nullable=False)
 
     profile: Mapped[UserProfileModel] = relationship(
+        back_populates='user',
+        uselist=False,
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+    )
+    membership: Mapped[UserMembershipModel | None] = relationship(
         back_populates='user',
         uselist=False,
         cascade='all, delete-orphan',

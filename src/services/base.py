@@ -10,6 +10,8 @@ from src.repository import CacheInvalidationRepo, Repo
 
 logger = logging.getLogger(__name__)
 
+type Cacheable = bool
+
 
 class BaseService[RepoT: Repo, ModelT: Base, ReadT: BaseModel]:
     entity_name: str
@@ -46,6 +48,10 @@ class BaseService[RepoT: Repo, ModelT: Base, ReadT: BaseModel]:
                 logger.warning('unusable cached payload: %s', key, exc_info=True)
                 await self.cache.delete(key)
         obj = await self._get_or_raise(obj_id)
-        read = self.read_model.model_validate(obj)
-        await self.cache.add(key, read.model_dump_json().encode())
+        read, cacheable = await self._read(obj)
+        if cacheable:
+            await self.cache.add(key, read.model_dump_json().encode())
         return read
+
+    async def _read(self, obj: ModelT) -> tuple[ReadT, Cacheable]:
+        return self.read_model.model_validate(obj), True
