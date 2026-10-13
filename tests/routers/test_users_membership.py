@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infra.db import tx_session
 from src.middleware import REQUEST_ID_HEADER
-from src.models.membership_requests import membership_requests
+from src.models.pending_memberships import pending_memberships
 from src.models.user_memberships import UserMembershipModel
-from src.repository import MembershipRequestRepo, UserMembershipRepo
+from src.repository import PendingMembershipRepo, UserMembershipRepo
 from src.schemas.users import MembershipRead
 from tests.conftest import (
     LIBRARY_BREAKER_THRESHOLD,
@@ -47,16 +47,16 @@ async def _stored_membership(db_session: AsyncSession, user_id: str) -> UserMemb
     return (await db_session.execute(stmt)).scalar_one_or_none()
 
 
-async def _request(db_session: AsyncSession, user_id: str) -> Row[tuple[int, timedelta]] | None:
+async def _pending(db_session: AsyncSession, user_id: str) -> Row[tuple[int, timedelta]] | None:
     stmt = select(
-        membership_requests.c.attempts,
-        membership_requests.c.next_attempt_at - func.now(),
-    ).where(membership_requests.c.user_id == UUID(user_id))
+        pending_memberships.c.attempts,
+        pending_memberships.c.next_attempt_at - func.now(),
+    ).where(pending_memberships.c.user_id == UUID(user_id))
     return (await db_session.execute(stmt)).one_or_none()
 
 
-async def _request_count(db_session: AsyncSession) -> int:
-    stmt = select(func.count()).select_from(membership_requests)
+async def _pending_count(db_session: AsyncSession) -> int:
+    stmt = select(func.count()).select_from(pending_memberships)
     return (await db_session.execute(stmt)).scalar_one()
 
 
@@ -85,7 +85,7 @@ async def test_create_user_issues_and_stores_membership(
         issued.issued_at,
         membership.synced_at,
     )
-    assert await _request(db_session, created['id']) is None
+    assert await _pending(db_session, created['id']) is None
 
 
 async def test_create_user_while_library_down_leaves_request_for_worker(
@@ -95,7 +95,7 @@ async def test_create_user_while_library_down_leaves_request_for_worker(
 
     assert created['membership'] is None
     assert await _stored_membership(db_session, created['id']) is None
-    request = await _request(db_session, created['id'])
+    request = await _pending(db_session, created['id'])
     assert request is not None
     attempts, wait = request
     assert attempts == 0
@@ -110,7 +110,7 @@ async def test_create_user_rejected_by_library_postpones_request(
     created = await _create_user(client)
 
     assert created['membership'] is None
-    request = await _request(db_session, created['id'])
+    request = await _pending(db_session, created['id'])
     assert request is not None
     attempts, wait = request
     assert attempts == 1
@@ -135,7 +135,7 @@ async def test_duplicate_user_does_not_reach_library(
 
     assert response.status_code == 409
     assert len(fake_library.requests) == 1
-    assert await _request_count(db_session) == 0
+    assert await _pending_count(db_session) == 0
 
 
 async def test_open_breaker_skips_library_on_create(
@@ -309,7 +309,7 @@ async def test_delete_user_cancels_pending_request(
 
     assert (await library_down_client.delete(f'/users/{created["id"]}')).status_code == 204
 
-    assert await _request(db_session, created['id']) is None
+    assert await _pending(db_session, created['id']) is None
 
 
 async def test_delete_during_issue_completion_marks_issued_copy_deleted(
@@ -323,7 +323,7 @@ async def test_delete_during_issue_completion_marks_issued_copy_deleted(
     issued = fake_library.issue(user_id)
 
     async with tx_session(session_factory) as session:
-        assert await MembershipRequestRepo(session).complete(user_id)
+        assert await PendingMembershipRepo(session).complete(user_id)
         await UserMembershipRepo(session).store(issued)
         deletion = asyncio.create_task(library_down_client.delete(f'/users/{created["id"]}'))
         await wait_for_lock_waiter(session_factory)

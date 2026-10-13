@@ -10,7 +10,7 @@ from src.bootstrap import (
     build_engine,
     build_library,
     build_library_http,
-    build_membership_issuer,
+    build_membership_service,
     build_outbox,
     build_redis,
 )
@@ -36,13 +36,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     cache = build_cache(settings, client)
     outbox = build_outbox(settings, session_factory, cache)
     library = build_library(settings, http)
-    issuer = build_membership_issuer(settings, session_factory, library)
+    membership_service = build_membership_service(settings, session_factory, library)
 
     app.state.session_factory = session_factory
     app.state.cache = cache
     app.state.outbox = outbox
     app.state.library = library
-    app.state.membership_issuer = issuer
+    app.state.membership_service = membership_service
     outbox_worker = asyncio.create_task(outbox.run())
 
     yield

@@ -9,10 +9,10 @@ from src.dependencies.cache_invalidations import (
 )
 from src.dependencies.db import SessionDep, TxSessionDep
 from src.dependencies.library import LibraryClientDep
-from src.dependencies.membership_issuer import MembershipIssuerDep
-from src.dependencies.membership_requests import (
-    MembershipRequestRepoDep,
-    MembershipRequestRepoTxDep,
+from src.dependencies.membership_service import MembershipServiceDep
+from src.dependencies.pending_memberships import (
+    PendingMembershipRepoDep,
+    PendingMembershipRepoTxDep,
 )
 from src.infra.uow import UnitOfWork
 from src.repository import UserRepo
@@ -36,11 +36,19 @@ def _user_service(
     invalidations: CacheInvalidationRepoDep,
     cache: CacheDep,
     library: LibraryClientDep,
-    issuer: MembershipIssuerDep,
-    requests: MembershipRequestRepoDep,
+    membership_service: MembershipServiceDep,
+    pending_memberships: PendingMembershipRepoDep,
     session: SessionDep,
 ) -> UserService:
-    return UserService(repo, invalidations, cache, library, issuer, requests, UnitOfWork(session))
+    return UserService(
+        repo,
+        invalidations,
+        cache,
+        library,
+        membership_service,
+        pending_memberships,
+        UnitOfWork(session),
+    )
 
 
 def _user_service_tx(
@@ -48,11 +56,19 @@ def _user_service_tx(
     invalidations: CacheInvalidationRepoTxDep,
     cache: CacheDep,
     library: LibraryClientDep,
-    issuer: MembershipIssuerDep,
-    requests: MembershipRequestRepoTxDep,
+    membership_service: MembershipServiceDep,
+    pending_memberships: PendingMembershipRepoTxDep,
     session: TxSessionDep,
 ) -> UserService:
-    return UserService(repo, invalidations, cache, library, issuer, requests, UnitOfWork(session))
+    return UserService(
+        repo,
+        invalidations,
+        cache,
+        library,
+        membership_service,
+        pending_memberships,
+        UnitOfWork(session),
+    )
 
 
 UserServiceDep = Annotated[UserService, Depends(_user_service)]

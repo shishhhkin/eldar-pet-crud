@@ -9,12 +9,12 @@ from src.exceptions import AlreadyExistsError
 from src.infra.cache import Cache
 from src.infra.uow import UnitOfWork
 from src.models.genres import GenreModel
-from src.repository import CacheInvalidationRepo, GenreRepo, MembershipRequestRepo, Repo, UserRepo
+from src.repository import CacheInvalidationRepo, GenreRepo, PendingMembershipRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate
 from src.schemas.moods import MoodPayload
 from src.schemas.users import UserCreate, UserProfilePayload
 from src.services.genre_service import GenreService
-from src.services.membership_issuer import MembershipIssuer
+from src.services.membership_service import MembershipService
 from src.services.user_service import UserService
 
 
@@ -41,15 +41,15 @@ def user_service(
     db_session: AsyncSession,
     cache: Cache,
     library: LibraryClient,
-    membership_issuer: MembershipIssuer,
+    membership_service: MembershipService,
 ) -> UserService:
     return UserService(
         UserRepo(db_session),
         CacheInvalidationRepo(db_session),
         cache,
         library,
-        membership_issuer,
-        MembershipRequestRepo(db_session),
+        membership_service,
+        PendingMembershipRepo(db_session),
         UnitOfWork(db_session),
     )
 

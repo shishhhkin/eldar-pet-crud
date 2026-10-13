@@ -15,9 +15,9 @@ from sqlalchemy.ext.asyncio import (
 from src.clients.library import LibraryClient
 from src.config import Settings
 from src.infra.cache import Cache
-from src.repository import CacheInvalidationRepo, MembershipRequestRepo, UserMembershipRepo
+from src.repository import CacheInvalidationRepo, PendingMembershipRepo, UserMembershipRepo
 from src.services.invalidation_outbox import InvalidationOutbox
-from src.services.membership_issuer import MembershipIssuer
+from src.services.membership_service import MembershipService
 from src.utils.resilience import RetryPolicy
 
 
@@ -78,15 +78,15 @@ def build_library(settings: Settings, http: httpx.AsyncClient) -> LibraryClient:
     )
 
 
-def build_membership_issuer(
+def build_membership_service(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     library: LibraryClient,
-) -> MembershipIssuer:
-    return MembershipIssuer(
+) -> MembershipService:
+    return MembershipService(
         session_factory,
         UserMembershipRepo,
-        MembershipRequestRepo,
+        PendingMembershipRepo,
         library,
         settings.membership_sync_pass_limit,
         settings.membership_sync_interval_seconds,

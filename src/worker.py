@@ -6,7 +6,7 @@ from src.bootstrap import (
     build_engine,
     build_library,
     build_library_http,
-    build_membership_issuer,
+    build_membership_service,
 )
 from src.config import Settings
 from src.infra.db import build_session_factory
@@ -19,15 +19,15 @@ async def serve() -> None:
     settings = Settings()  # type: ignore[call-arg]
     engine = build_engine(settings)
     http = build_library_http(settings)
-    issuer = build_membership_issuer(
+    membership_service = build_membership_service(
         settings, build_session_factory(engine), build_library(settings, http)
     )
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, issuer.stop)
+        loop.add_signal_handler(sig, membership_service.stop)
     logger.info('membership worker started')
     try:
-        await issuer.run()
+        await membership_service.run()
     finally:
         await http.aclose()
         await engine.dispose()

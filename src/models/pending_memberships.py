@@ -2,8 +2,8 @@ import sqlalchemy as sa
 
 from src.models.base import Base
 
-membership_requests = sa.Table(
-    'membership_requests',
+pending_memberships = sa.Table(
+    'pending_memberships',
     Base.metadata,
     sa.Column(
         'user_id',

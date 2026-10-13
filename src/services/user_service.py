@@ -11,10 +11,10 @@ from src.infra.cache import Cache
 from src.infra.uow import UnitOfWork
 from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
-from src.repository import CacheInvalidationRepo, MembershipRequestRepo, UserRepo
+from src.repository import CacheInvalidationRepo, PendingMembershipRepo, UserRepo
 from src.schemas.users import UserCreate, UserRead, UserUpdate
 from src.services.base import BaseService, Cacheable
-from src.services.membership_issuer import MembershipIssuer
+from src.services.membership_service import MembershipService
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +30,21 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         invalidations: CacheInvalidationRepo,
         cache: Cache,
         library: LibraryClient,
-        issuer: MembershipIssuer,
-        requests: MembershipRequestRepo,
+        membership_service: MembershipService,
+        pending_memberships: PendingMembershipRepo,
         uow: UnitOfWork,
     ) -> None:
         super().__init__(repo, invalidations, cache)
         self.library = library
-        self.issuer = issuer
-        self.requests = requests
+        self.membership_service = membership_service
+        self.pending_memberships = pending_memberships
         self.uow = uow
 
     async def create(self, payload: UserCreate) -> UserRead:
         async with self.uow:
             user = await self._create(payload)
-            await self.requests.add(user.id, self.issuer.lease)
-        membership = await self.issuer.issue(user.id)
+            await self.pending_memberships.add(user.id, self.membership_service.lease)
+        membership = await self.membership_service.issue(user.id)
         return to_user_read(user, membership)
 
     async def _create(self, payload: UserCreate) -> UserModel:
@@ -80,7 +80,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
                 exc,
             )
             raise
-        return to_user_read(obj, await self.issuer.store(membership)), True
+        return to_user_read(obj, await self.membership_service.store(membership)), True
 
     async def update(self, user_id: UUID, payload: UserUpdate) -> UserRead:
         user = await self._get_or_raise(user_id)
@@ -102,7 +102,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         return self.read_model.model_validate(user)
 
     async def delete(self, user_id: UUID) -> None:
-        await self.requests.cancel(user_id)
+        await self.pending_memberships.cancel(user_id)
         user = await self._get_or_raise(user_id)
         user.is_deleted = True
         if user.profile is not None:

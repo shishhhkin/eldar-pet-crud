@@ -12,13 +12,13 @@ from src.repository import (
     AuthorRepo,
     CacheInvalidationRepo,
     GenreRepo,
-    MembershipRequestRepo,
+    PendingMembershipRepo,
     UserRepo,
 )
 from src.services.author_service import AuthorService
 from src.services.base import BaseService
 from src.services.genre_service import GenreService
-from src.services.membership_issuer import MembershipIssuer
+from src.services.membership_service import MembershipService
 from src.services.user_service import UserService
 
 LOGGER_NAME = 'src.services.base'
@@ -29,7 +29,7 @@ def services(
     db_session: AsyncSession,
     cache: Cache,
     library: LibraryClient,
-    membership_issuer: MembershipIssuer,
+    membership_service: MembershipService,
 ) -> dict[str, BaseService]:
     invalidations = CacheInvalidationRepo(db_session)
     return {
@@ -40,8 +40,8 @@ def services(
             invalidations,
             cache,
             library,
-            membership_issuer,
-            MembershipRequestRepo(db_session),
+            membership_service,
+            PendingMembershipRepo(db_session),
             UnitOfWork(db_session),
         ),
     }

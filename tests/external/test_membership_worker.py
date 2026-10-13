@@ -8,10 +8,10 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.infra.db import tx_session
-from src.models.membership_requests import membership_requests
+from src.models.pending_memberships import pending_memberships
 from src.models.user_memberships import UserMembershipModel
 from src.models.users import UserModel
-from src.repository import MembershipRequestRepo, UserRepo
+from src.repository import PendingMembershipRepo, UserRepo
 from tests.external import EXTERNAL_LIBRARY_URL, requires_library
 from tests.worker_process import POLL_SECONDS, running_worker, worker_env
 
@@ -36,7 +36,7 @@ async def test_worker_process_issues_membership_through_library(
     async with tx_session(session_factory) as session:
         user = UserModel(username='alice', email='alice@example.com')
         await UserRepo(session).save(user)
-        await MembershipRequestRepo(session).add(user.id, timedelta(0))
+        await PendingMembershipRepo(session).add(user.id, timedelta(0))
     env = worker_env(postgres_container, redis_container, str(EXTERNAL_LIBRARY_URL))
 
     async with running_worker(env) as worker:
@@ -46,5 +46,5 @@ async def test_worker_process_issues_membership_through_library(
         assert await worker.stop() == 0
 
     async with session_factory() as session:
-        stmt = select(func.count()).select_from(membership_requests)
+        stmt = select(func.count()).select_from(pending_memberships)
         assert (await session.execute(stmt)).scalar_one() == 0

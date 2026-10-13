@@ -12,7 +12,7 @@ from src.clients.library import LibraryClient
 from src.exceptions import ExternalServiceBadResponseError, ExternalServiceUnavailableError
 from src.infra.db import tx_session
 from src.mappers.users import to_membership_read
-from src.repository import MembershipRequestRepo, UserMembershipRepo
+from src.repository import PendingMembershipRepo, UserMembershipRepo
 from src.schemas.library import LibraryMembership
 from src.schemas.users import MembershipRead
 from src.utils.resilience import exponential_backoff
@@ -20,12 +20,12 @@ from src.utils.resilience import exponential_backoff
 logger = logging.getLogger(__name__)
 
 
-class MembershipIssuer:
+class MembershipService:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         repo_factory: Callable[[AsyncSession], UserMembershipRepo],
-        requests_factory: Callable[[AsyncSession], MembershipRequestRepo],
+        pending_factory: Callable[[AsyncSession], PendingMembershipRepo],
         library: LibraryClient,
         pass_limit: int,
         interval_seconds: float,
@@ -35,7 +35,7 @@ class MembershipIssuer:
     ) -> None:
         self.session_factory = session_factory
         self.repo_factory = repo_factory
-        self.requests_factory = requests_factory
+        self.pending_factory = pending_factory
         self.library = library
         self.pass_limit = pass_limit
         self.interval_seconds = interval_seconds
@@ -65,12 +65,12 @@ class MembershipIssuer:
         processed = 0
         while processed < self.pass_limit and not self.stopping.is_set():
             async with tx_session(self.session_factory) as session:
-                request = await self.requests_factory(session).claim(self.lease)
-            if request is None:
+                claimed = await self.pending_factory(session).claim(self.lease)
+            if claimed is None:
                 break
             processed += 1
             try:
-                await self._attempt(request.user_id, request.attempts)
+                await self._attempt(claimed.user_id, claimed.attempts)
             except ExternalServiceUnavailableError:
                 break
         return processed
@@ -90,7 +90,7 @@ class MembershipIssuer:
         except ExternalServiceUnavailableError as exc:
             logger.warning('membership issue deferred: user_id=%s (%s)', user_id, exc)
             async with tx_session(self.session_factory) as session:
-                await self.requests_factory(session).release(user_id)
+                await self.pending_factory(session).release(user_id)
             raise
         except ExternalServiceBadResponseError as exc:
             attempts += 1
@@ -104,12 +104,12 @@ class MembershipIssuer:
                 attempts, self.retry_base_delay_seconds, self.retry_max_delay_seconds
             )
             async with tx_session(self.session_factory) as session:
-                await self.requests_factory(session).reschedule(
+                await self.pending_factory(session).reschedule(
                     user_id, attempts, timedelta(seconds=delay)
                 )
             return None
         async with tx_session(self.session_factory) as session:
-            if not await self.requests_factory(session).complete(user_id):
+            if not await self.pending_factory(session).complete(user_id):
                 logger.warning(
                     'membership issued for cancelled request: user_id=%s membership_id=%s',
                     user_id,

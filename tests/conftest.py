@@ -28,11 +28,11 @@ from src.infra.cache import Cache
 from src.models import Base, cache_invalidations
 from src.repository import (
     CacheInvalidationRepo,
-    MembershipRequestRepo,
+    PendingMembershipRepo,
     UserMembershipRepo,
 )
 from src.services.invalidation_outbox import InvalidationOutbox
-from src.services.membership_issuer import MembershipIssuer
+from src.services.membership_service import MembershipService
 from src.utils.resilience import RetryPolicy
 from tests.fake_library import BASE_URL, FakeLibrary
 
@@ -203,15 +203,15 @@ async def unreachable_library(breaker: CircuitBreaker) -> AsyncIterator[LibraryC
         yield make_library(http, breaker)
 
 
-def make_issuer(
+def make_membership_service(
     session_factory: async_sessionmaker[AsyncSession],
     library: LibraryClient,
     pass_limit: int = MEMBERSHIP_SYNC_PASS_LIMIT,
-) -> MembershipIssuer:
-    return MembershipIssuer(
+) -> MembershipService:
+    return MembershipService(
         session_factory,
         UserMembershipRepo,
-        MembershipRequestRepo,
+        PendingMembershipRepo,
         library,
         pass_limit,
         MEMBERSHIP_SYNC_INTERVAL_SECONDS,
@@ -222,17 +222,17 @@ def make_issuer(
 
 
 @pytest.fixture
-def membership_issuer(
+def membership_service(
     session_factory: async_sessionmaker[AsyncSession], library: LibraryClient
-) -> MembershipIssuer:
-    return make_issuer(session_factory, library)
+) -> MembershipService:
+    return make_membership_service(session_factory, library)
 
 
 @pytest.fixture
-def unreachable_membership_issuer(
+def unreachable_membership_service(
     session_factory: async_sessionmaker[AsyncSession], unreachable_library: LibraryClient
-) -> MembershipIssuer:
-    return make_issuer(session_factory, unreachable_library)
+) -> MembershipService:
+    return make_membership_service(session_factory, unreachable_library)
 
 
 @asynccontextmanager
@@ -244,7 +244,7 @@ async def _client(
     app.state.cache = cache
     app.state.outbox = _outbox(session_factory, cache)
     app.state.library = library
-    app.state.membership_issuer = make_issuer(session_factory, library)
+    app.state.membership_service = make_membership_service(session_factory, library)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test/v1') as ac:

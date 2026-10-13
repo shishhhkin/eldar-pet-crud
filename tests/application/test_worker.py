@@ -6,9 +6,9 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.infra.db import tx_session
-from src.models.membership_requests import membership_requests
+from src.models.pending_memberships import pending_memberships
 from src.models.users import UserModel
-from src.repository import MembershipRequestRepo, UserRepo
+from src.repository import PendingMembershipRepo, UserRepo
 from tests.conftest import closed_port
 from tests.worker_process import STOPPED, running_worker, worker_env
 
@@ -41,7 +41,7 @@ async def test_worker_process_keeps_request_while_library_unreachable(
     async with tx_session(session_factory) as session:
         user = UserModel(username='alice', email='alice@example.com')
         await UserRepo(session).save(user)
-        await MembershipRequestRepo(session).add(user.id, timedelta(0))
+        await PendingMembershipRepo(session).add(user.id, timedelta(0))
     env = worker_env(postgres_container, redis_container, _unreachable_library_url())
 
     async with running_worker(env) as worker:
@@ -49,5 +49,5 @@ async def test_worker_process_keeps_request_while_library_unreachable(
         assert await worker.stop() == 0
 
     async with session_factory() as session:
-        stmt = select(membership_requests.c.user_id, membership_requests.c.attempts)
+        stmt = select(pending_memberships.c.user_id, pending_memberships.c.attempts)
         assert (await session.execute(stmt)).all() == [(user.id, 0)]
