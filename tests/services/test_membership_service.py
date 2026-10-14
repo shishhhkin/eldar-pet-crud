@@ -459,6 +459,33 @@ async def test_store_keeps_newer_version_and_returns_it(
     assert stored.synced_at > first.synced_at
 
 
+@pytest.mark.parametrize('newer_first', [True, False])
+@pytest.mark.parametrize('copy_exists', [True, False])
+async def test_concurrent_stores_keep_newer_version(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+    newer_first: bool,
+    copy_exists: bool,
+) -> None:
+    user_id = await create_user('alice')
+    issued = fake_library.issue(user_id)
+    changed = fake_library.change(user_id, 'LIB-99999999')
+    if copy_exists:
+        await _store(session_factory, issued)
+    first, second = (changed, issued) if newer_first else (issued, changed)
+
+    async with tx_session(session_factory) as session:
+        await UserMembershipRepo(session).store(first)
+        blocked = asyncio.create_task(_store(session_factory, second))
+        await wait_for_lock_waiter(session_factory)
+
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        await blocked
+    stored = await _stored_copy(session_factory)
+    assert (stored.number, stored.version) == (changed.number, changed.version)
+
+
 async def test_store_moves_synced_at_forward(
     fake_library: FakeLibrary,
     create_user: CreateUser,
