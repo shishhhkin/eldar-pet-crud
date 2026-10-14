@@ -1,4 +1,6 @@
 import asyncio
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from http import HTTPMethod, HTTPStatus
 from uuid import UUID
 
@@ -30,9 +32,17 @@ RETRYABLE_STATUSES = frozenset(
 
 def retry_after_seconds(response: httpx.Response) -> float | None:
     value = response.headers.get('Retry-After')
-    if value is None or not value.isdigit():
+    if value is None:
         return None
-    return float(value)
+    if value.isdigit():
+        return float(value)
+    try:
+        moment = parsedate_to_datetime(value)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return max(0.0, (moment - datetime.now(UTC)).total_seconds())
 
 
 class LibraryClient:
