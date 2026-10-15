@@ -5,7 +5,6 @@ from contextlib import suppress
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.clients.library import LibraryClient
@@ -48,9 +47,6 @@ class MembershipService:
         try:
             return await self._attempt(user_id, claim_token)
         except ExternalServiceUnavailableError:
-            return None
-        except SQLAlchemyError, OSError:
-            logger.warning('membership request not settled: user_id=%s', user_id, exc_info=True)
             return None
 
     async def store(self, membership: LibraryMembership) -> MembershipRead:

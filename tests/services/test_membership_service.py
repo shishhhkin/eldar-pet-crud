@@ -455,27 +455,23 @@ async def test_issue_returns_none_and_releases_when_library_unreachable(
     assert wait <= timedelta(0)
 
 
-async def test_issue_keeps_lease_when_copy_cannot_be_stored(
+async def test_issue_fails_request_when_library_number_is_too_long(
     membership_service: MembershipService,
     fake_library: FakeLibrary,
     create_user: CreateUser,
     enqueue: Enqueue,
     session_factory: async_sessionmaker[AsyncSession],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     user_id = await create_user('alice')
     claim_token = await enqueue(user_id, LEASE)
     fake_library.issue(user_id)
     fake_library.change(user_id, TOO_LONG_NUMBER)
 
-    with caplog.at_level(logging.WARNING, logger=SERVICE_LOGGER):
-        assert await membership_service.issue(user_id, claim_token) is None
+    assert await membership_service.issue(user_id, claim_token) is None
 
     assert await _stored(session_factory) == {}
-    failed_at, wait = (await _pending(session_factory))[user_id]
-    assert failed_at is None
-    assert wait > LEASE - CLOCK_TOLERANCE
-    assert any(str(user_id) in record.getMessage() for record in caplog.records)
+    failed_at, _ = (await _pending(session_factory))[user_id]
+    assert failed_at is not None
 
 
 async def _store(

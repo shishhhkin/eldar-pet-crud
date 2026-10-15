@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LibraryMembershipCreate(BaseModel):
@@ -11,6 +11,6 @@ class LibraryMembershipCreate(BaseModel):
 class LibraryMembership(BaseModel):
     id: UUID
     user_id: UUID
-    number: str
+    number: str = Field(max_length=16)
     issued_at: datetime
     version: int
