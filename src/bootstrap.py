@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 
 import httpx
@@ -82,6 +83,7 @@ def build_membership_service(
     settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
     library: LibraryClient,
+    heartbeat: Callable[[], None] = lambda: None,
 ) -> MembershipService:
     return MembershipService(
         session_factory,
@@ -91,4 +93,5 @@ def build_membership_service(
         settings.membership_sync_pass_limit,
         settings.membership_sync_interval_seconds,
         settings.membership_sync_lease_seconds,
+        heartbeat,
     )

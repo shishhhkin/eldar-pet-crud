@@ -6,7 +6,7 @@ from http import HTTPMethod, HTTPStatus
 from uuid import UUID
 
 import pytest
-`from sqlalchemy import Row, func, select, update
+from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.clients.library import LibraryClient

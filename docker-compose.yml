@@ -47,6 +47,7 @@ services:
     build: .
     env_file: .env
     command: ["python", "-m", "src.worker"]
+    restart: unless-stopped
     environment:
       postgres_host: postgres
       postgres_port: 5432
@@ -57,4 +58,8 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "src.worker", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3

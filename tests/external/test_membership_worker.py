@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -32,12 +33,13 @@ async def test_worker_process_issues_membership_through_library(
     postgres_container: PostgresContainer,
     redis_container: RedisContainer,
     session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
 ) -> None:
     async with tx_session(session_factory) as session:
         user = UserModel(username='alice', email='alice@example.com')
         await UserRepo(session).save(user)
         await PendingMembershipRepo(session).add(user.id, timedelta(0))
-    env = worker_env(postgres_container, redis_container, str(EXTERNAL_LIBRARY_URL))
+    env = worker_env(postgres_container, redis_container, str(EXTERNAL_LIBRARY_URL), tmp_path)
 
     async with running_worker(env) as worker:
         async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):

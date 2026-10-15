@@ -17,10 +17,11 @@ POLL_SECONDS = 0.05
 
 
 def worker_env(
-    postgres: PostgresContainer, redis: RedisContainer, library_url: str
+    postgres: PostgresContainer, redis: RedisContainer, library_url: str, tmp_dir: Path
 ) -> dict[str, str]:
     return {
         **os.environ,
+        'TMPDIR': str(tmp_dir),
         'postgres_user': postgres.username,
         'postgres_password': postgres.password,
         'postgres_host': postgres.get_container_host_ip(),
@@ -59,6 +60,27 @@ class WorkerProcess:
         async with asyncio.timeout(PROCESS_TIMEOUT_SECONDS):
             await self._reader
             return await self.process.wait()
+
+    async def kill(self) -> None:
+        self.process.kill()
+        async with asyncio.timeout(PROCESS_TIMEOUT_SECONDS):
+            await self._reader
+            await self.process.wait()
+
+
+async def healthcheck(env: dict[str, str]) -> int:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        '-m',
+        'src.worker',
+        'healthcheck',
+        cwd=ROOT,
+        env=env,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    async with asyncio.timeout(PROCESS_TIMEOUT_SECONDS):
+        return await process.wait()
 
 
 @asynccontextmanager

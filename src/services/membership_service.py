@@ -29,6 +29,7 @@ class MembershipService:
         pass_limit: int,
         interval_seconds: float,
         lease_seconds: float,
+        heartbeat: Callable[[], None] = lambda: None,
     ) -> None:
         self.session_factory = session_factory
         self.repo_factory = repo_factory
@@ -37,6 +38,7 @@ class MembershipService:
         self.pass_limit = pass_limit
         self.interval_seconds = interval_seconds
         self.lease = timedelta(seconds=lease_seconds)
+        self.heartbeat = heartbeat
         self.stopping = asyncio.Event()
 
     def stop(self) -> None:
@@ -61,6 +63,7 @@ class MembershipService:
         while processed < self.pass_limit and not self.stopping.is_set():
             async with tx_session(self.session_factory) as session:
                 claimed = await self.pending_factory(session).claim(self.lease)
+            self.heartbeat()
             if claimed is None:
                 break
             processed += 1
