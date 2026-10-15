@@ -66,7 +66,7 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         if obj.membership is None:
             return self.read_model.model_validate(obj), False
         membership_id = obj.membership.id
-        await self.uow.commit()
+        await self.uow.release_connection()
         try:
             membership = await self.library.get_membership(membership_id)
         except ExternalServiceUnavailableError as exc:

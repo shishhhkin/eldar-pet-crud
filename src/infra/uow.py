@@ -14,6 +14,9 @@ class UnitOfWork:
     async def rollback(self) -> None:
         await self.session.rollback()
 
+    async def release_connection(self) -> None:
+        await self.session.close()
+
     async def __aenter__(self) -> Self:
         return self
 
