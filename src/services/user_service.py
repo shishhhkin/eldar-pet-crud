@@ -43,8 +43,8 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
     async def create(self, payload: UserCreate) -> UserRead:
         async with self.uow:
             user = await self._create(payload)
-            await self.pending_memberships.add(user.id, self.membership_service.lease)
-        membership = await self.membership_service.issue(user.id)
+            claim_token = await self.pending_memberships.add(user.id, self.membership_service.lease)
+        membership = await self.membership_service.issue(user.id, claim_token)
         return to_user_read(user, membership)
 
     async def _create(self, payload: UserCreate) -> UserModel:

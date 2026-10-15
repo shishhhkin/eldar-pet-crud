@@ -19,6 +19,7 @@ from src.schemas.users import MembershipRead
 from tests.conftest import (
     LIBRARY_BREAKER_THRESHOLD,
     LIBRARY_RETRY_ATTEMPTS,
+    MEMBERSHIP_SYNC_LEASE_SECONDS,
     wait_for_lock_waiter,
     without_synced_at,
 )
@@ -324,7 +325,10 @@ async def test_delete_during_issue_completion_marks_issued_copy_deleted(
     issued = fake_library.issue(user_id)
 
     async with tx_session(session_factory) as session:
-        assert await PendingMembershipRepo(session).complete(user_id)
+        pending = PendingMembershipRepo(session)
+        claimed = await pending.claim(timedelta(seconds=MEMBERSHIP_SYNC_LEASE_SECONDS))
+        assert claimed is not None
+        assert await pending.complete(user_id, claimed.claim_token)
         await UserMembershipRepo(session).store(issued)
         deletion = asyncio.create_task(library_down_client.delete(f'/users/{created["id"]}'))
         await wait_for_lock_waiter(session_factory)

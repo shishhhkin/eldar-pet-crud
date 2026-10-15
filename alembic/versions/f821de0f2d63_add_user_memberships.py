@@ -38,6 +38,7 @@ def upgrade() -> None:
     op.create_table('pending_memberships',
     sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('next_attempt_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('claim_token', sa.Uuid(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('fk_pending_memberships_user_id_users'), onupdate='CASCADE', ondelete='CASCADE'),

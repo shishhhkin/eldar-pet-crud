@@ -18,6 +18,7 @@ pending_memberships = sa.Table(
         nullable=False,
         index=True,
     ),
+    sa.Column('claim_token', sa.Uuid, server_default=sa.func.gen_random_uuid(), nullable=False),
     sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column(
         'created_at',
