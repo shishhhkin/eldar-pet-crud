@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from http import HTTPMethod, HTTPStatus
 from uuid import UUID
 
@@ -47,9 +47,11 @@ async def _stored_membership(db_session: AsyncSession, user_id: str) -> UserMemb
     return (await db_session.execute(stmt)).scalar_one_or_none()
 
 
-async def _pending(db_session: AsyncSession, user_id: str) -> Row[tuple[int, timedelta]] | None:
+async def _pending(
+    db_session: AsyncSession, user_id: str
+) -> Row[tuple[datetime | None, timedelta]] | None:
     stmt = select(
-        pending_memberships.c.attempts,
+        pending_memberships.c.failed_at,
         pending_memberships.c.next_attempt_at - func.now(),
     ).where(pending_memberships.c.user_id == UUID(user_id))
     return (await db_session.execute(stmt)).one_or_none()
@@ -97,12 +99,12 @@ async def test_create_user_while_library_down_leaves_request_for_worker(
     assert await _stored_membership(db_session, created['id']) is None
     request = await _pending(db_session, created['id'])
     assert request is not None
-    attempts, wait = request
-    assert attempts == 0
+    failed_at, wait = request
+    assert failed_at is None
     assert wait <= timedelta(0)
 
 
-async def test_create_user_rejected_by_library_postpones_request(
+async def test_create_user_rejected_by_library_fails_request(
     client: AsyncClient, fake_library: FakeLibrary, db_session: AsyncSession
 ) -> None:
     fake_library.fail(status=HTTPStatus.UNPROCESSABLE_ENTITY)
@@ -112,9 +114,8 @@ async def test_create_user_rejected_by_library_postpones_request(
     assert created['membership'] is None
     request = await _pending(db_session, created['id'])
     assert request is not None
-    attempts, wait = request
-    assert attempts == 1
-    assert wait > timedelta(0)
+    failed_at, _ = request
+    assert failed_at is not None
 
 
 async def test_create_user_forwards_request_id(

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import Row, delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.pending_memberships import pending_memberships
@@ -17,10 +17,13 @@ class PendingMembershipRepo:
         )
         await self.session.execute(stmt)
 
-    async def claim(self, lease: timedelta) -> Row[tuple[UUID, int]] | None:
+    async def claim(self, lease: timedelta) -> UUID | None:
         due = (
             select(pending_memberships.c.user_id)
-            .where(pending_memberships.c.next_attempt_at <= func.now())
+            .where(
+                pending_memberships.c.failed_at.is_(None),
+                pending_memberships.c.next_attempt_at <= func.now(),
+            )
             .order_by(pending_memberships.c.next_attempt_at)
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -30,15 +33,15 @@ class PendingMembershipRepo:
             update(pending_memberships)
             .where(pending_memberships.c.user_id == due)
             .values(next_attempt_at=func.now() + lease)
-            .returning(pending_memberships.c.user_id, pending_memberships.c.attempts)
+            .returning(pending_memberships.c.user_id)
         )
-        return (await self.session.execute(stmt)).one_or_none()
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def reschedule(self, user_id: UUID, attempts: int, delay: timedelta) -> None:
+    async def fail(self, user_id: UUID) -> None:
         stmt = (
             update(pending_memberships)
             .where(pending_memberships.c.user_id == user_id)
-            .values(attempts=attempts, next_attempt_at=func.now() + delay)
+            .values(failed_at=func.now())
         )
         await self.session.execute(stmt)
 

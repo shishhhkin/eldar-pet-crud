@@ -32,8 +32,6 @@ BASE_ENV = {
     'membership_sync_interval_seconds': '5',
     'membership_sync_pass_limit': '100',
     'membership_sync_lease_seconds': '60',
-    'membership_sync_retry_base_delay_seconds': '5',
-    'membership_sync_retry_max_delay_seconds': '3600',
 }
 
 NON_EMPTY = ('postgres_user', 'postgres_password', 'postgres_host', 'postgres_db', 'redis_host')
@@ -50,8 +48,6 @@ SECONDS_UP_TO_DAY = (
     'library_breaker_reset_seconds',
     'membership_sync_interval_seconds',
     'membership_sync_lease_seconds',
-    'membership_sync_retry_base_delay_seconds',
-    'membership_sync_retry_max_delay_seconds',
 )
 BATCH_LIMITS = ('cache_invalidation_batch_size', 'membership_sync_pass_limit')
 
@@ -107,8 +103,6 @@ LOWER_BOUNDS: dict[str, object] = {
     'membership_sync_interval_seconds': 0.001,
     'membership_sync_pass_limit': 1,
     'membership_sync_lease_seconds': 0.002,
-    'membership_sync_retry_base_delay_seconds': 0.001,
-    'membership_sync_retry_max_delay_seconds': 0.001,
 }
 
 UPPER_BOUNDS: dict[str, object] = {
@@ -130,8 +124,6 @@ UPPER_BOUNDS: dict[str, object] = {
     'membership_sync_interval_seconds': 86400,
     'membership_sync_pass_limit': 1000,
     'membership_sync_lease_seconds': 86400,
-    'membership_sync_retry_base_delay_seconds': 86400,
-    'membership_sync_retry_max_delay_seconds': 86400,
 }
 
 LIBRARY_CALL_ENV = {
@@ -181,10 +173,9 @@ def test_boundary_values_are_accepted(
     assert settings.model_dump(include=set(bounds)) == bounds
 
 
-@pytest.mark.parametrize('prefix', ['library_retry', 'membership_sync_retry'])
-def test_max_delay_below_base_delay_is_rejected(load_settings: LoadSettings, prefix: str) -> None:
-    with pytest.raises(ValidationError, match=f'{prefix}_max_delay_seconds must not be less'):
-        load_settings(**{f'{prefix}_base_delay_seconds': '2', f'{prefix}_max_delay_seconds': '1.5'})
+def test_max_delay_below_base_delay_is_rejected(load_settings: LoadSettings) -> None:
+    with pytest.raises(ValidationError, match='library_retry_max_delay_seconds must not be less'):
+        load_settings(library_retry_base_delay_seconds='2', library_retry_max_delay_seconds='1.5')
 
 
 def test_lease_not_longer_than_library_call_is_rejected(load_settings: LoadSettings) -> None:

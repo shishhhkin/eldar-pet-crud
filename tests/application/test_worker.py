@@ -49,5 +49,5 @@ async def test_worker_process_keeps_request_while_library_unreachable(
         assert await worker.stop() == 0
 
     async with session_factory() as session:
-        stmt = select(pending_memberships.c.user_id, pending_memberships.c.attempts)
-        assert (await session.execute(stmt)).all() == [(user.id, 0)]
+        stmt = select(pending_memberships.c.user_id, pending_memberships.c.failed_at)
+        assert (await session.execute(stmt)).all() == [(user.id, None)]

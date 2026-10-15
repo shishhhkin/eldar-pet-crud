@@ -42,8 +42,6 @@ class Settings(BaseSettings):
     membership_sync_interval_seconds: SecondsUpToDay
     membership_sync_pass_limit: BatchLimit
     membership_sync_lease_seconds: SecondsUpToDay
-    membership_sync_retry_base_delay_seconds: SecondsUpToDay
-    membership_sync_retry_max_delay_seconds: SecondsUpToDay
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -66,21 +64,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def _check_consistency(self) -> Self:
-        retry_delays = {
-            'library_retry': (
-                self.library_retry_base_delay_seconds,
-                self.library_retry_max_delay_seconds,
-            ),
-            'membership_sync_retry': (
-                self.membership_sync_retry_base_delay_seconds,
-                self.membership_sync_retry_max_delay_seconds,
-            ),
-        }
-        for prefix, (base, cap) in retry_delays.items():
-            if cap < base:
-                raise ValueError(
-                    f'{prefix}_max_delay_seconds must not be less than {prefix}_base_delay_seconds'
-                )
+        if self.library_retry_max_delay_seconds < self.library_retry_base_delay_seconds:
+            raise ValueError(
+                'library_retry_max_delay_seconds must not be less than '
+                'library_retry_base_delay_seconds'
+            )
         library_call_seconds = (
             self.library_retry_attempts * self.library_timeout_seconds
             + (self.library_retry_attempts - 1) * self.library_retry_max_delay_seconds

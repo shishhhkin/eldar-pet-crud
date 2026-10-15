@@ -11,7 +11,6 @@ pending_memberships = sa.Table(
         sa.ForeignKey('users.id', ondelete='CASCADE', onupdate='CASCADE'),
         primary_key=True,
     ),
-    sa.Column('attempts', sa.Integer, server_default=sa.text('0'), nullable=False),
     sa.Column(
         'next_attempt_at',
         sa.DateTime(timezone=True),
@@ -19,6 +18,7 @@ pending_memberships = sa.Table(
         nullable=False,
         index=True,
     ),
+    sa.Column('failed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column(
         'created_at',
         sa.DateTime(timezone=True),

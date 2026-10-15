@@ -91,6 +91,4 @@ def build_membership_service(
         settings.membership_sync_pass_limit,
         settings.membership_sync_interval_seconds,
         settings.membership_sync_lease_seconds,
-        settings.membership_sync_retry_base_delay_seconds,
-        settings.membership_sync_retry_max_delay_seconds,
     )

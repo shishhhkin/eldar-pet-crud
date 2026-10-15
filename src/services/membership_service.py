@@ -15,7 +15,6 @@ from src.mappers.users import to_membership_read
 from src.repository import PendingMembershipRepo, UserMembershipRepo
 from src.schemas.library import LibraryMembership
 from src.schemas.users import MembershipRead
-from src.utils.resilience import exponential_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +29,6 @@ class MembershipService:
         pass_limit: int,
         interval_seconds: float,
         lease_seconds: float,
-        retry_base_delay_seconds: float,
-        retry_max_delay_seconds: float,
     ) -> None:
         self.session_factory = session_factory
         self.repo_factory = repo_factory
@@ -40,8 +37,6 @@ class MembershipService:
         self.pass_limit = pass_limit
         self.interval_seconds = interval_seconds
         self.lease = timedelta(seconds=lease_seconds)
-        self.retry_base_delay_seconds = retry_base_delay_seconds
-        self.retry_max_delay_seconds = retry_max_delay_seconds
         self.stopping = asyncio.Event()
 
     def stop(self) -> None:
@@ -49,7 +44,7 @@ class MembershipService:
 
     async def issue(self, user_id: UUID) -> MembershipRead | None:
         try:
-            return await self._attempt(user_id, 0)
+            return await self._attempt(user_id)
         except ExternalServiceUnavailableError:
             return None
         except SQLAlchemyError, OSError:
@@ -65,12 +60,12 @@ class MembershipService:
         processed = 0
         while processed < self.pass_limit and not self.stopping.is_set():
             async with tx_session(self.session_factory) as session:
-                claimed = await self.pending_factory(session).claim(self.lease)
-            if claimed is None:
+                user_id = await self.pending_factory(session).claim(self.lease)
+            if user_id is None:
                 break
             processed += 1
             try:
-                await self._attempt(claimed.user_id, claimed.attempts)
+                await self._attempt(user_id)
             except ExternalServiceUnavailableError:
                 break
         return processed
@@ -84,7 +79,7 @@ class MembershipService:
             with suppress(TimeoutError):
                 await asyncio.wait_for(self.stopping.wait(), self.interval_seconds)
 
-    async def _attempt(self, user_id: UUID, attempts: int) -> MembershipRead | None:
+    async def _attempt(self, user_id: UUID) -> MembershipRead | None:
         try:
             membership = await self.library.issue_membership(user_id)
         except ExternalServiceUnavailableError as exc:
@@ -93,20 +88,9 @@ class MembershipService:
                 await self.pending_factory(session).release(user_id)
             raise
         except ExternalServiceBadResponseError as exc:
-            attempts += 1
-            logger.error(
-                'membership issue rejected: user_id=%s attempts=%d (%s)',
-                user_id,
-                attempts,
-                exc,
-            )
-            delay = exponential_backoff(
-                attempts, self.retry_base_delay_seconds, self.retry_max_delay_seconds
-            )
+            logger.error('membership issue failed: user_id=%s (%s)', user_id, exc)
             async with tx_session(self.session_factory) as session:
-                await self.pending_factory(session).reschedule(
-                    user_id, attempts, timedelta(seconds=delay)
-                )
+                await self.pending_factory(session).fail(user_id)
             return None
         async with tx_session(self.session_factory) as session:
             if not await self.pending_factory(session).complete(user_id):
