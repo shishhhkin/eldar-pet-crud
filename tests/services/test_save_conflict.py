@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.clients.library import LibraryClient
 from src.exceptions import AlreadyExistsError
 from src.infra.cache import Cache
-from src.infra.uow import UnitOfWork
+from src.infra.db import UnitOfWork
 from src.models.genres import GenreModel
 from src.repository import CacheInvalidationRepo, GenreRepo, PendingMembershipRepo, Repo, UserRepo
 from src.schemas.genres import GenreCreate

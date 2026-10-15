@@ -14,7 +14,7 @@ from src.dependencies.pending_memberships import (
     PendingMembershipRepoDep,
     PendingMembershipRepoTxDep,
 )
-from src.infra.uow import UnitOfWork
+from src.infra.db import UnitOfWork
 from src.repository import UserRepo
 from src.services.user_service import UserService
 

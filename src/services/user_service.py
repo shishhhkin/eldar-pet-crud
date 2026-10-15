@@ -8,7 +8,7 @@ from src.exceptions import (
     ExternalServiceUnavailableError,
 )
 from src.infra.cache import Cache
-from src.infra.uow import UnitOfWork
+from src.infra.db import UnitOfWork
 from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
 from src.models.users import UserModel
 from src.repository import CacheInvalidationRepo, PendingMembershipRepo, UserRepo

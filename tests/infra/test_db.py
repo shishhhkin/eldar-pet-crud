@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.infra.uow import UnitOfWork
+from src.infra.db import UnitOfWork
 from src.repository import CacheInvalidationRepo
 from tests.conftest import outbox_keys
 
