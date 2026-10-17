@@ -222,17 +222,55 @@ async def test_slow_read_of_older_version_keeps_newer_copy(
     assert (stored.number, stored.version) == (changed.number, changed.version)
 
 
-async def test_read_user_while_library_down_returns_unavailable(
-    client: AsyncClient, fake_library: FakeLibrary, redis_client: Redis
+async def test_read_user_while_library_down_returns_stored_copy(
+    client: AsyncClient,
+    fake_library: FakeLibrary,
+    redis_client: Redis,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    created = await _create_user(client)
+    fake_library.change(UUID(created['id']), 'LIB-99999999')
+    fake_library.fail(LIBRARY_RETRY_ATTEMPTS)
+
+    with caplog.at_level(logging.WARNING, logger=SERVICE_LOGGER):
+        response = await client.get(f'/users/{created["id"]}')
+
+    assert response.status_code == 200
+    assert response.json() == created
+    assert await redis_client.get(_key(created['id'])) is None
+    assert any(
+        record.name == SERVICE_LOGGER and created['id'] in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_read_user_after_library_recovers_fetches_fresh_copy(
+    client: AsyncClient, fake_library: FakeLibrary
 ) -> None:
     created = await _create_user(client)
     fake_library.fail(LIBRARY_RETRY_ATTEMPTS)
+    await client.get(f'/users/{created["id"]}')
+    changed = fake_library.change(UUID(created['id']), 'LIB-99999999')
 
     response = await client.get(f'/users/{created["id"]}')
 
-    assert response.status_code == 503
-    assert response.json()['code'] == 'external_service_unavailable'
-    assert await redis_client.get(_key(created['id'])) is None
+    assert response.json()['membership']['number'] == changed.number
+
+
+async def test_read_user_with_open_breaker_returns_stored_copy_without_library(
+    client: AsyncClient, fake_library: FakeLibrary
+) -> None:
+    created = await _create_user(client)
+    fake_library.fail(LIBRARY_BREAKER_THRESHOLD)
+    for _ in range(2):
+        await client.get(f'/users/{created["id"]}')
+    assert _library_gets(fake_library) == LIBRARY_BREAKER_THRESHOLD
+
+    response = await client.get(f'/users/{created["id"]}')
+
+    assert response.status_code == 200
+    assert response.json() == created
+    assert _library_gets(fake_library) == LIBRARY_BREAKER_THRESHOLD
 
 
 async def test_read_pending_user_is_not_cached(

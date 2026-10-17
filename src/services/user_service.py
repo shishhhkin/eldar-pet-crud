@@ -9,7 +9,12 @@ from src.exceptions import (
 )
 from src.infra.cache import Cache
 from src.infra.db import UnitOfWork
-from src.mappers.users import apply_user_update, to_user_profile_model, to_user_read
+from src.mappers.users import (
+    apply_user_update,
+    to_membership_read,
+    to_user_profile_model,
+    to_user_read,
+)
 from src.models.users import UserModel
 from src.repository import CacheInvalidationRepo, PendingMembershipRepo, UserRepo
 from src.schemas.users import UserCreate, UserRead, UserUpdate
@@ -70,8 +75,10 @@ class UserService(BaseService[UserRepo, UserModel, UserRead]):
         try:
             membership = await self.library.get_membership(membership_id)
         except ExternalServiceUnavailableError as exc:
-            logger.warning('membership not fetched: user_id=%s (%s)', obj.id, exc)
-            raise
+            logger.warning(
+                'membership not fetched, serving stored copy: user_id=%s (%s)', obj.id, exc
+            )
+            return to_user_read(obj, to_membership_read(obj.membership)), False
         except ExternalServiceBadResponseError as exc:
             logger.error(
                 'membership not fetched: user_id=%s membership_id=%s (%s)',
