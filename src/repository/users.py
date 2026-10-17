@@ -6,7 +6,7 @@ from src.repository.base import Repo
 
 
 class UserRepo(Repo[UserModel]):
-    relations = (selectinload(UserModel.profile),)
+    relations = (selectinload(UserModel.profile), selectinload(UserModel.membership))
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, UserModel)
@@ -14,5 +14,5 @@ class UserRepo(Repo[UserModel]):
     async def create_ignoring_conflict(self, *, username: str, email: str) -> UserModel | None:
         user = await self.insert_ignoring_conflict(username=username, email=email)
         if user is not None:
-            await self.session.refresh(user, attribute_names=['profile'])
+            await self.session.refresh(user, attribute_names=['profile', 'membership'])
         return user

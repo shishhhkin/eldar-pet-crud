@@ -2,17 +2,18 @@
 name = "eldar-pet-crud"
 version = "0.1.0"
 description = "Async FastAPI CRUD over Users/Authors/Genres with SQLAlchemy + Alembic"
-readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "fastapi>=0.135.3",
+    "httpx>=0.28.1",
     "pydantic[email]>=2.12.5",
     "pydantic-settings>=2.13.1",
     "redis>=8.1.0",
     "sqlalchemy[asyncio]>=2.0.49",
     "uvicorn>=0.44.0",
+    "aiobreaker>=1.2.0",
 ]
 
 [dependency-groups]
@@ -20,7 +21,6 @@ dev = [
     "ruff>=0.15.11",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
-    "httpx>=0.27.0",
     "testcontainers[postgres,redis]>=4.15.0",
 ]
 
@@ -29,6 +29,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+filterwarnings = ["ignore:datetime.datetime.utcnow:DeprecationWarning:aiobreaker"]
 
 [tool.ruff]
 line-length = 100
@@ -43,3 +44,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["aiobreaker"]
+ignore_missing_imports = true

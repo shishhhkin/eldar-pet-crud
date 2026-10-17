@@ -122,10 +122,17 @@ USER_UPDATE_EXAMPLES: dict[str, Any] = {
         'value': {'profile': PROFILE_PAYLOAD_EXAMPLE},
     },
 }
+MEMBERSHIP_READ_EXAMPLE: dict[str, Any] = {
+    'id': _ID_EXAMPLE,
+    'number': 'LIB-00000042',
+    'issued_at': '2026-01-15T10:30:01Z',
+    'synced_at': '2026-01-15T10:30:01Z',
+}
 USER_READ_EXAMPLE: dict[str, Any] = {
     'id': _ID_EXAMPLE,
     'username': 'john_doe',
     'email': 'john@example.com',
     'created_at': '2026-01-15T10:30:00Z',
     'profile': PROFILE_READ_EXAMPLE,
+    'membership': MEMBERSHIP_READ_EXAMPLE,
 }

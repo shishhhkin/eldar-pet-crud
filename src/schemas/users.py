@@ -17,6 +17,7 @@ from pydantic_core import PydanticCustomError
 
 from src.schemas.base import IdentifiedRead, example_values
 from src.schemas.examples import (
+    MEMBERSHIP_READ_EXAMPLE,
     PROFILE_PAYLOAD_EXAMPLE,
     USER_CREATE_EXAMPLES,
     USER_READ_EXAMPLE,
@@ -98,11 +99,22 @@ class UserUpdate(BaseModel):
         return self
 
 
+class MembershipRead(IdentifiedRead):
+    number: str
+    issued_at: datetime
+    synced_at: datetime
+
+    model_config = ConfigDict(
+        json_schema_extra={'examples': [MEMBERSHIP_READ_EXAMPLE]},
+    )
+
+
 class UserRead(IdentifiedRead):
     username: str
     email: EmailStr
     created_at: datetime
     profile: UserProfileRead | None
+    membership: MembershipRead | None
 
     model_config = ConfigDict(
         json_schema_extra={'examples': [USER_READ_EXAMPLE]},

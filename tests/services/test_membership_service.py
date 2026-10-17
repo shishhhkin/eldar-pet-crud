@@ -1,0 +1,609 @@
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
+from http import HTTPMethod, HTTPStatus
+from uuid import UUID
+
+import pytest
+from sqlalchemy import Row, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from src.clients.library import LibraryClient
+from src.infra.db import tx_session
+from src.models.pending_memberships import pending_memberships
+from src.models.user_memberships import UserMembershipModel
+from src.models.users import UserModel
+from src.repository import PendingMembershipRepo, UserMembershipRepo, UserRepo
+from src.schemas.library import LibraryMembership
+from src.services.membership_service import MembershipService
+from tests.conftest import (
+    LIBRARY_RETRY_ATTEMPTS,
+    MEMBERSHIP_SYNC_INTERVAL_SECONDS,
+    MEMBERSHIP_SYNC_LEASE_SECONDS,
+    make_membership_service,
+    wait_for_lock_waiter,
+)
+from tests.fake_library import FakeLibrary
+
+SERVICE_LOGGER = 'src.services.membership_service'
+WAIT_TIMEOUT_SECONDS = 5.0
+LEASE = timedelta(seconds=MEMBERSHIP_SYNC_LEASE_SECONDS)
+CLOCK_TOLERANCE = timedelta(seconds=1)
+TOO_LONG_NUMBER = 'LIB-' + '9' * 13
+
+type CreateUser = Callable[..., Awaitable[UUID]]
+type Enqueue = Callable[..., Awaitable[UUID]]
+type Settle = Callable[[PendingMembershipRepo, UUID, UUID], Awaitable[object]]
+
+
+@pytest.fixture
+def create_user(session_factory: async_sessionmaker[AsyncSession]) -> CreateUser:
+    async def create(username: str) -> UUID:
+        async with tx_session(session_factory) as session:
+            user = UserModel(username=username, email=f'{username}@example.com')
+            await UserRepo(session).save(user)
+        return user.id
+
+    return create
+
+
+@pytest.fixture
+def enqueue(session_factory: async_sessionmaker[AsyncSession]) -> Enqueue:
+    async def add(user_id: UUID, delay: timedelta = timedelta(0)) -> UUID:
+        async with tx_session(session_factory) as session:
+            return await PendingMembershipRepo(session).add(user_id, delay)
+
+    return add
+
+
+async def _stored(session_factory: async_sessionmaker[AsyncSession]) -> dict[UUID, UUID]:
+    async with session_factory() as session:
+        stmt = select(UserMembershipModel.user_id, UserMembershipModel.id)
+        return {user_id: membership_id for user_id, membership_id in await session.execute(stmt)}
+
+
+async def _pending(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> dict[UUID, tuple[datetime | None, timedelta]]:
+    async with session_factory() as session:
+        stmt = select(
+            pending_memberships.c.user_id,
+            pending_memberships.c.failed_at,
+            pending_memberships.c.next_attempt_at - func.now(),
+        )
+        return {
+            user_id: (failed_at, wait) for user_id, failed_at, wait in await session.execute(stmt)
+        }
+
+
+async def _request(
+    session_factory: async_sessionmaker[AsyncSession], user_id: UUID
+) -> Row[tuple[datetime, UUID, datetime | None]]:
+    async with session_factory() as session:
+        stmt = select(
+            pending_memberships.c.next_attempt_at,
+            pending_memberships.c.claim_token,
+            pending_memberships.c.failed_at,
+        ).where(pending_memberships.c.user_id == user_id)
+        return (await session.execute(stmt)).one()
+
+
+async def _expire_lease(session_factory: async_sessionmaker[AsyncSession], user_id: UUID) -> None:
+    async with tx_session(session_factory) as session:
+        await session.execute(
+            update(pending_memberships)
+            .where(pending_memberships.c.user_id == user_id)
+            .values(next_attempt_at=func.now() - CLOCK_TOLERANCE)
+        )
+
+
+async def test_pass_issues_memberships_and_removes_requests(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_ids = [await create_user('alice'), await create_user('bob')]
+    for user_id in user_ids:
+        await enqueue(user_id)
+
+    assert await membership_service.process_pass() == 2
+
+    assert await _stored(session_factory) == {
+        user_id: fake_library.memberships[user_id].id for user_id in user_ids
+    }
+    assert await _pending(session_factory) == {}
+
+
+async def test_pass_attaches_membership_already_issued_by_library(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    existing = fake_library.issue(user_id)
+    await enqueue(user_id)
+
+    assert await membership_service.process_pass() == 1
+
+    assert await _stored(session_factory) == {user_id: existing.id}
+    assert len(fake_library.memberships) == 1
+
+
+async def test_pass_skips_request_leased_by_another_executor(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+) -> None:
+    await enqueue(await create_user('alice'), LEASE)
+
+    assert await membership_service.process_pass() == 0
+    assert fake_library.requests == []
+
+
+async def test_pass_takes_request_whose_lease_expired(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    await enqueue(user_id, -CLOCK_TOLERANCE)
+
+    assert await membership_service.process_pass() == 1
+
+    assert await _stored(session_factory) == {user_id: fake_library.memberships[user_id].id}
+
+
+async def test_claim_returns_user_id_and_new_token(
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    added_token = await enqueue(user_id)
+
+    async with tx_session(session_factory) as session:
+        claimed = await PendingMembershipRepo(session).claim(LEASE)
+
+    assert claimed is not None
+    assert claimed.user_id == user_id
+    assert claimed.claim_token != added_token
+    assert (await _request(session_factory, user_id)).claim_token == claimed.claim_token
+
+
+@pytest.mark.parametrize(
+    'settle',
+    [PendingMembershipRepo.complete, PendingMembershipRepo.release, PendingMembershipRepo.fail],
+    ids=['complete', 'release', 'fail'],
+)
+async def test_stale_token_does_not_settle_reclaimed_request(
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+    settle: Settle,
+) -> None:
+    user_id = await create_user('alice')
+    stale_token = await enqueue(user_id, -CLOCK_TOLERANCE)
+    async with tx_session(session_factory) as session:
+        assert await PendingMembershipRepo(session).claim(LEASE) is not None
+    reclaimed = await _request(session_factory, user_id)
+
+    async with tx_session(session_factory) as session:
+        await settle(PendingMembershipRepo(session), user_id, stale_token)
+
+    assert await _request(session_factory, user_id) == reclaimed
+
+
+async def test_claim_skips_failed_request(
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, -CLOCK_TOLERANCE)
+    async with tx_session(session_factory) as session:
+        await PendingMembershipRepo(session).fail(user_id, claim_token)
+
+    async with tx_session(session_factory) as session:
+        assert await PendingMembershipRepo(session).claim(LEASE) is None
+
+
+async def test_concurrent_claims_take_different_requests(
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_ids = {await create_user('alice'), await create_user('bob')}
+    for user_id in user_ids:
+        await enqueue(user_id)
+
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        async with tx_session(session_factory) as first:
+            held = await PendingMembershipRepo(first).claim(LEASE)
+            async with tx_session(session_factory) as second:
+                other = await PendingMembershipRepo(second).claim(LEASE)
+
+    assert held is not None
+    assert other is not None
+    assert {held.user_id, other.user_id} == user_ids
+
+
+async def test_claim_returns_nothing_when_no_request_is_due(
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await enqueue(await create_user('alice'), LEASE)
+
+    async with tx_session(session_factory) as session:
+        assert await PendingMembershipRepo(session).claim(LEASE) is None
+
+
+async def test_pass_stops_and_releases_request_when_library_unavailable(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_ids = [await create_user('alice'), await create_user('bob')]
+    for user_id in user_ids:
+        await enqueue(user_id)
+    fake_library.fail(LIBRARY_RETRY_ATTEMPTS)
+
+    assert await membership_service.process_pass() == 1
+
+    assert len(fake_library.requests) == LIBRARY_RETRY_ATTEMPTS
+    pending = await _pending(session_factory)
+    assert set(pending) == set(user_ids)
+    assert all(failed_at is None for failed_at, _ in pending.values())
+    assert all(wait <= timedelta(0) for _, wait in pending.values())
+    assert await _stored(session_factory) == {}
+
+
+@pytest.mark.parametrize('status', [HTTPStatus.UNPROCESSABLE_ENTITY, HTTPStatus.OK])
+async def test_rejected_request_fails_and_pass_continues(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+    status: HTTPStatus,
+) -> None:
+    rejected, issued = await create_user('alice'), await create_user('bob')
+    await enqueue(rejected)
+    await enqueue(issued)
+    fake_library.fail(status=status)
+    before = await _db_now(session_factory)
+
+    with caplog.at_level(logging.ERROR, logger=SERVICE_LOGGER):
+        assert await membership_service.process_pass() == 2
+
+    assert await _stored(session_factory) == {issued: fake_library.memberships[issued].id}
+    pending = await _pending(session_factory)
+    assert list(pending) == [rejected]
+    failed_at, _ = pending[rejected]
+    assert failed_at is not None
+    assert before < failed_at < await _db_now(session_factory)
+    assert any(str(rejected) in record.getMessage() for record in caplog.records)
+
+
+async def test_failed_request_is_not_retried(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    await enqueue(user_id)
+    fake_library.fail(status=HTTPStatus.UNPROCESSABLE_ENTITY)
+    assert await membership_service.process_pass() == 1
+
+    await _expire_lease(session_factory, user_id)
+
+    assert await membership_service.process_pass() == 0
+    assert len(fake_library.requests) == 1
+    assert await _stored(session_factory) == {}
+
+
+async def test_worker_with_expired_lease_does_not_complete_reclaimed_request(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    user_id = await create_user('alice')
+    await enqueue(user_id)
+    hold = fake_library.hold_next(HTTPMethod.POST)
+    stale_worker = asyncio.create_task(membership_service.process_pass())
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        await hold.reached.wait()
+    await _expire_lease(session_factory, user_id)
+    async with tx_session(session_factory) as session:
+        assert await PendingMembershipRepo(session).claim(LEASE) is not None
+    reclaimed = await _request(session_factory, user_id)
+
+    with caplog.at_level(logging.WARNING, logger=SERVICE_LOGGER):
+        hold.release.set()
+        async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+            assert await stale_worker == 1
+
+    assert await _stored(session_factory) == {}
+    assert await _request(session_factory, user_id) == reclaimed
+    membership_id = str(fake_library.memberships[user_id].id)
+    assert any(membership_id in record.getMessage() for record in caplog.records)
+
+
+async def test_pass_is_limited_by_pass_limit(
+    session_factory: async_sessionmaker[AsyncSession],
+    library: LibraryClient,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+) -> None:
+    for username in ('alice', 'bob'):
+        await enqueue(await create_user(username))
+
+    assert await make_membership_service(session_factory, library, pass_limit=1).process_pass() == 1
+
+    assert len(await _pending(session_factory)) == 1
+
+
+async def test_issue_after_cancel_does_not_store_copy(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+    async with tx_session(session_factory) as session:
+        await PendingMembershipRepo(session).cancel(user_id)
+
+    with caplog.at_level(logging.WARNING, logger=SERVICE_LOGGER):
+        assert await membership_service.issue(user_id, claim_token) is None
+
+    assert await _stored(session_factory) == {}
+    membership_id = str(fake_library.memberships[user_id].id)
+    assert any(membership_id in record.getMessage() for record in caplog.records)
+
+
+async def test_completion_waits_for_concurrent_cancel_and_skips_copy(
+    membership_service: MembershipService,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+
+    async with tx_session(session_factory) as session:
+        await PendingMembershipRepo(session).cancel(user_id)
+        issue = asyncio.create_task(membership_service.issue(user_id, claim_token))
+        await wait_for_lock_waiter(session_factory)
+
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        assert await issue is None
+    assert await _stored(session_factory) == {}
+
+
+async def test_same_request_completed_twice_stores_single_copy(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+
+    results = await asyncio.gather(
+        membership_service.issue(user_id, claim_token),
+        membership_service.issue(user_id, claim_token),
+    )
+
+    assert sorted(result is None for result in results) == [False, True]
+    assert await _stored(session_factory) == {user_id: fake_library.memberships[user_id].id}
+    assert len(fake_library.memberships) == 1
+
+
+async def test_issue_returns_none_and_fails_request_when_library_rejects(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+    fake_library.fail(status=HTTPStatus.UNPROCESSABLE_ENTITY)
+
+    assert await membership_service.issue(user_id, claim_token) is None
+
+    assert len(fake_library.requests) == 1
+    assert await _stored(session_factory) == {}
+    failed_at, _ = (await _pending(session_factory))[user_id]
+    assert failed_at is not None
+
+
+async def test_issue_returns_none_and_releases_when_library_unreachable(
+    unreachable_membership_service: MembershipService,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+
+    assert await unreachable_membership_service.issue(user_id, claim_token) is None
+
+    assert await _stored(session_factory) == {}
+    failed_at, wait = (await _pending(session_factory))[user_id]
+    assert failed_at is None
+    assert wait <= timedelta(0)
+
+
+async def test_issue_fails_request_when_library_number_is_too_long(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    claim_token = await enqueue(user_id, LEASE)
+    fake_library.issue(user_id)
+    fake_library.change(user_id, TOO_LONG_NUMBER)
+
+    assert await membership_service.issue(user_id, claim_token) is None
+
+    assert await _stored(session_factory) == {}
+    failed_at, _ = (await _pending(session_factory))[user_id]
+    assert failed_at is not None
+
+
+async def _store(
+    session_factory: async_sessionmaker[AsyncSession], membership: LibraryMembership
+) -> UserMembershipModel:
+    async with tx_session(session_factory) as session:
+        return await UserMembershipRepo(session).store(membership)
+
+
+async def _stored_copy(session_factory: async_sessionmaker[AsyncSession]) -> UserMembershipModel:
+    async with session_factory() as session:
+        return (await session.execute(select(UserMembershipModel))).scalar_one()
+
+
+async def _db_now(session_factory: async_sessionmaker[AsyncSession]) -> datetime:
+    async with session_factory() as session:
+        return (await session.execute(select(func.now()))).scalar_one()
+
+
+async def test_store_sets_synced_at_on_db_side(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    issued = fake_library.issue(await create_user('alice'))
+    before = await _db_now(session_factory)
+
+    returned = await _store(session_factory, issued)
+
+    stored = await _stored_copy(session_factory)
+    assert before < stored.synced_at < await _db_now(session_factory)
+    assert returned.synced_at == stored.synced_at
+
+
+async def test_store_keeps_newer_version_and_returns_it(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    issued = fake_library.issue(user_id)
+    changed = fake_library.change(user_id, 'LIB-99999999')
+    first = await _store(session_factory, changed)
+
+    returned = await _store(session_factory, issued)
+
+    stored = await _stored_copy(session_factory)
+    assert (stored.number, stored.version) == (changed.number, changed.version)
+    assert (returned.number, returned.version) == (changed.number, changed.version)
+    assert stored.synced_at > first.synced_at
+
+
+@pytest.mark.parametrize('newer_first', [True, False])
+@pytest.mark.parametrize('copy_exists', [True, False])
+async def test_concurrent_stores_keep_newer_version(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+    newer_first: bool,
+    copy_exists: bool,
+) -> None:
+    user_id = await create_user('alice')
+    issued = fake_library.issue(user_id)
+    changed = fake_library.change(user_id, 'LIB-99999999')
+    if copy_exists:
+        await _store(session_factory, issued)
+    first, second = (changed, issued) if newer_first else (issued, changed)
+
+    async with tx_session(session_factory) as session:
+        await UserMembershipRepo(session).store(first)
+        blocked = asyncio.create_task(_store(session_factory, second))
+        await wait_for_lock_waiter(session_factory)
+
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        await blocked
+    stored = await _stored_copy(session_factory)
+    assert (stored.number, stored.version) == (changed.number, changed.version)
+
+
+async def test_store_moves_synced_at_forward(
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    issued = fake_library.issue(await create_user('alice'))
+    first = await _store(session_factory, issued)
+
+    second = await _store(session_factory, issued)
+
+    assert second.synced_at > first.synced_at
+    assert (await _stored_copy(session_factory)).synced_at == second.synced_at
+
+
+async def test_run_loop_issues_pending_requests(
+    membership_service: MembershipService,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user_id = await create_user('alice')
+    await enqueue(user_id)
+    worker = asyncio.create_task(membership_service.run())
+    try:
+        async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+            while user_id not in await _stored(session_factory):
+                await asyncio.sleep(MEMBERSHIP_SYNC_INTERVAL_SECONDS)
+    finally:
+        membership_service.stop()
+        async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+            await worker
+
+
+async def test_stop_finishes_request_in_flight_and_leaves_rest_of_pass(
+    membership_service: MembershipService,
+    fake_library: FakeLibrary,
+    create_user: CreateUser,
+    enqueue: Enqueue,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    first, second = await create_user('alice'), await create_user('bob')
+    await enqueue(first)
+    await enqueue(second)
+    hold = fake_library.hold_next(HTTPMethod.POST)
+    worker = asyncio.create_task(membership_service.run())
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        await hold.reached.wait()
+
+    membership_service.stop()
+    hold.release.set()
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        await worker
+
+    assert await _stored(session_factory) == {first: fake_library.memberships[first].id}
+    assert list(await _pending(session_factory)) == [second]
+    assert len(fake_library.requests) == 1

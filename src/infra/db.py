@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Final
+from types import TracebackType
+from typing import Final, Self
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -26,3 +27,25 @@ async def tx_session(
 ) -> AsyncGenerator[AsyncSession]:
     async with session_factory() as session, session.begin():
         yield session
+
+
+class UnitOfWork:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def release_connection(self) -> None:
+        await self.session.close()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        if exc_type is None:
+            await self.session.commit()
+        else:
+            await self.session.rollback()

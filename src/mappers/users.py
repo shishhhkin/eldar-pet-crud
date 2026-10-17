@@ -1,11 +1,20 @@
 from src.mappers.base import apply_fields
+from src.models.user_memberships import UserMembershipModel
 from src.models.user_profiles import UserProfileModel
 from src.models.users import UserModel
-from src.schemas.users import UserProfilePayload, UserUpdate
+from src.schemas.users import MembershipRead, UserProfilePayload, UserRead, UserUpdate
 
 
 def to_user_profile_model(payload: UserProfilePayload) -> UserProfileModel:
     return UserProfileModel(**payload.model_dump(mode='json'))
+
+
+def to_membership_read(membership: UserMembershipModel) -> MembershipRead:
+    return MembershipRead.model_validate(membership)
+
+
+def to_user_read(user: UserModel, membership: MembershipRead | None) -> UserRead:
+    return UserRead.model_validate(user).model_copy(update={'membership': membership})
 
 
 def apply_user_update(user: UserModel, payload: UserUpdate) -> None:
