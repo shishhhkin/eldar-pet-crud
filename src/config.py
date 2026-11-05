@@ -1,7 +1,15 @@
+import re
 from pathlib import Path
 from typing import Annotated, Self
 
-from pydantic import Field, HttpUrl, PostgresDsn, computed_field, model_validator
+from pydantic import (
+    Field,
+    HttpUrl,
+    PostgresDsn,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parent.parent / '.env'
@@ -11,6 +19,9 @@ Port = Annotated[int, Field(ge=1, le=65535)]
 BatchLimit = Annotated[int, Field(ge=1, le=1000)]
 SecondsUpToMinute = Annotated[float, Field(gt=0, le=60)]
 SecondsUpToDay = Annotated[float, Field(gt=0, le=86400)]
+KafkaTopic = Annotated[str, Field(pattern=r'^[A-Za-z0-9._-]{1,249}$')]
+
+_BOOTSTRAP_SERVER_RE = re.compile(r'[^\s,:]+:(\d{1,5})')
 
 
 class Settings(BaseSettings):
@@ -43,6 +54,14 @@ class Settings(BaseSettings):
     membership_sync_pass_limit: BatchLimit
     membership_sync_lease_seconds: SecondsUpToDay
 
+    kafka_bootstrap_servers: str
+    kafka_book_reservations_topic: KafkaTopic
+    kafka_send_timeout_seconds: SecondsUpToMinute
+
+    book_reservation_relay_interval_seconds: SecondsUpToDay
+    book_reservation_relay_pass_limit: BatchLimit
+    book_reservation_relay_lease_seconds: SecondsUpToDay
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding='utf-8',
@@ -62,6 +81,17 @@ class Settings(BaseSettings):
             path=self.postgres_db,
         )
 
+    @field_validator('kafka_bootstrap_servers')
+    @classmethod
+    def _check_bootstrap_servers(cls, value: str) -> str:
+        for server in value.split(','):
+            match = _BOOTSTRAP_SERVER_RE.fullmatch(server)
+            if match is None or not 1 <= int(match.group(1)) <= 65535:
+                raise ValueError(
+                    'kafka_bootstrap_servers must be a comma-separated list of host:port'
+                )
+        return value
+
     @model_validator(mode='after')
     def _check_consistency(self) -> Self:
         if self.library_retry_max_delay_seconds < self.library_retry_base_delay_seconds:
@@ -77,5 +107,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 'membership_sync_lease_seconds must exceed the longest library call '
                 f'({library_call_seconds:g}s)'
+            )
+        if self.book_reservation_relay_lease_seconds <= self.kafka_send_timeout_seconds:
+            raise ValueError(
+                'book_reservation_relay_lease_seconds must exceed kafka_send_timeout_seconds'
             )
         return self

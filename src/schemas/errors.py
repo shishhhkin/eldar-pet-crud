@@ -102,6 +102,9 @@ CREATE_RESPONSES: dict[int | str, dict[str, Any]] = {
     409: {'model': ConflictResponse, 'description': _CONFLICT_DESC},
     422: {'model': BodyValidationResponse, 'description': _BODY_VALIDATION_DESC},
 }
+BODY_VALIDATION_RESPONSES: dict[int | str, dict[str, Any]] = {
+    422: {'model': BodyValidationResponse, 'description': _BODY_VALIDATION_DESC},
+}
 READ_RESPONSES: dict[int | str, dict[str, Any]] = {
     404: {'model': NotFoundResponse, 'description': _NOT_FOUND_DESC},
     422: {'model': PathValidationResponse, 'description': _PATH_VALIDATION_DESC},

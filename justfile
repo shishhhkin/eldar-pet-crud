@@ -10,6 +10,9 @@ run:
 worker:
     uv run python -m src.worker
 
+relay:
+    uv run python -m src.relay
+
 test *args:
     uv run pytest {{args}}
 
@@ -46,4 +49,4 @@ down:
     docker compose down
 
 db:
-    docker compose up -d postgres redis
+    docker compose up -d postgres redis kafka kafka-init

@@ -1,13 +1,18 @@
 import asyncio
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from datetime import timedelta
 from functools import partial
+from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
 from aiobreaker import CircuitBreaker
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.structs import ConsumerRecord
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
@@ -19,18 +24,25 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from testcontainers.community.kafka import KafkaContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from src.application import get_app
 from src.clients.library import LibraryClient
 from src.infra.cache import Cache
+from src.infra.db import tx_session
 from src.models import Base, cache_invalidations
 from src.repository import (
+    BookReservationOutboxRepo,
+    BookReservationRepo,
     CacheInvalidationRepo,
     PendingMembershipRepo,
     UserMembershipRepo,
 )
+from src.schemas.book_reservations import BookReservationCreate, BookReservationRead
+from src.services.book_reservation_relay import BookReservationRelay
+from src.services.book_reservation_service import BookReservationService
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_service import MembershipService
 from src.utils.resilience import RetryPolicy
@@ -52,6 +64,13 @@ LIBRARY_BREAKER_RESET_SECONDS = 60
 MEMBERSHIP_SYNC_PASS_LIMIT = 100
 MEMBERSHIP_SYNC_INTERVAL_SECONDS = 0.05
 MEMBERSHIP_SYNC_LEASE_SECONDS = 60
+KAFKA_IMAGE = 'confluentinc/cp-kafka:7.9.10'
+KAFKA_SEND_TIMEOUT_SECONDS = 1.0
+KAFKA_READ_TIMEOUT_SECONDS = 10.0
+KAFKA_POLL_MS = 100
+BOOK_RESERVATION_RELAY_PASS_LIMIT = 100
+BOOK_RESERVATION_RELAY_INTERVAL_SECONDS = 0.05
+BOOK_RESERVATION_RELAY_LEASE_SECONDS = 60
 LOCK_WAIT_TIMEOUT_SECONDS = 5.0
 LOCK_WAIT_POLL_SECONDS = 0.01
 
@@ -297,3 +316,136 @@ async def db_session(
 ) -> AsyncIterator[AsyncSession]:
     async with session_factory() as session:
         yield session
+
+
+@pytest.fixture(scope='session')
+def kafka_container() -> Iterator[KafkaContainer]:
+    with KafkaContainer(KAFKA_IMAGE).with_kraft() as container:
+        yield container
+
+
+@pytest.fixture(scope='session')
+def kafka_bootstrap(kafka_container: KafkaContainer) -> str:
+    return kafka_container.get_bootstrap_server()
+
+
+async def create_topic(bootstrap: str) -> str:
+    topic = f'book-reservations-{uuid4().hex}'
+    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap)
+    await admin.start()
+    try:
+        await admin.create_topics([NewTopic(topic, num_partitions=1, replication_factor=1)])
+    finally:
+        await admin.close()
+    return topic
+
+
+@pytest.fixture
+async def kafka_topic(kafka_bootstrap: str) -> str:
+    return await create_topic(kafka_bootstrap)
+
+
+@pytest.fixture
+async def kafka_producer(kafka_bootstrap: str) -> AsyncIterator[AIOKafkaProducer]:
+    producer = AIOKafkaProducer(
+        bootstrap_servers=kafka_bootstrap, enable_idempotence=True, acks='all'
+    )
+    await producer.start()
+    yield producer
+    await producer.stop()
+
+
+type KafkaOutage = Callable[[], AbstractContextManager[None]]
+
+
+@pytest.fixture
+def kafka_outage(kafka_container: KafkaContainer) -> KafkaOutage:
+    @contextmanager
+    def outage() -> Iterator[None]:
+        container = kafka_container.get_wrapped_container()
+        container.pause()
+        try:
+            yield
+        finally:
+            container.unpause()
+
+    return outage
+
+
+async def read_messages(bootstrap: str, topic: str, count: int) -> list[ConsumerRecord]:
+    consumer = AIOKafkaConsumer(topic, bootstrap_servers=bootstrap, auto_offset_reset='earliest')
+    await consumer.start()
+    try:
+        records: list[ConsumerRecord] = []
+        async with asyncio.timeout(KAFKA_READ_TIMEOUT_SECONDS):
+            while len(records) < count:
+                for batch in (await consumer.getmany(timeout_ms=KAFKA_POLL_MS)).values():
+                    records.extend(batch)
+        return records
+    finally:
+        await consumer.stop()
+
+
+def reservation_event(body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'id': body['id'],
+        'title': body['title'],
+        'author': body['author'],
+        'reserved_at': body['created_at'],
+    }
+
+
+async def topic_size(bootstrap: str, topic: str) -> int:
+    consumer = AIOKafkaConsumer(bootstrap_servers=bootstrap)
+    await consumer.start()
+    try:
+        partition = TopicPartition(topic, 0)
+        return int((await consumer.end_offsets([partition]))[partition])
+    finally:
+        await consumer.stop()
+
+
+def make_relay(
+    session_factory: async_sessionmaker[AsyncSession],
+    producer: AIOKafkaProducer,
+    topic: str,
+    *,
+    pass_limit: int = BOOK_RESERVATION_RELAY_PASS_LIMIT,
+    send_timeout_seconds: float = KAFKA_SEND_TIMEOUT_SECONDS,
+) -> BookReservationRelay:
+    return BookReservationRelay(
+        session_factory,
+        BookReservationOutboxRepo,
+        producer,
+        topic,
+        pass_limit,
+        BOOK_RESERVATION_RELAY_INTERVAL_SECONDS,
+        BOOK_RESERVATION_RELAY_LEASE_SECONDS,
+        send_timeout_seconds,
+    )
+
+
+@pytest.fixture
+def relay(
+    session_factory: async_sessionmaker[AsyncSession],
+    kafka_producer: AIOKafkaProducer,
+    kafka_topic: str,
+) -> BookReservationRelay:
+    return make_relay(session_factory, kafka_producer, kafka_topic)
+
+
+type Reserve = Callable[..., Awaitable[BookReservationRead]]
+
+
+@pytest.fixture
+def reserve(session_factory: async_sessionmaker[AsyncSession]) -> Reserve:
+    async def create(title: str = 'Мастер и Маргарита') -> BookReservationRead:
+        async with tx_session(session_factory) as session:
+            service = BookReservationService(
+                BookReservationRepo(session), BookReservationOutboxRepo(session)
+            )
+            return await service.create(
+                BookReservationCreate(title=title, author='Михаил Булгаков')
+            )
+
+    return create

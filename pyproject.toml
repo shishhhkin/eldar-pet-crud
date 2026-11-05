@@ -14,6 +14,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.49",
     "uvicorn>=0.44.0",
     "aiobreaker>=1.2.0",
+    "aiokafka>=0.14.0",
 ]
 
 [dependency-groups]
@@ -21,7 +22,7 @@ dev = [
     "ruff>=0.15.11",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
-    "testcontainers[postgres,redis]>=4.15.0",
+    "testcontainers[kafka,postgres,redis]>=4.15.0",
 ]
 
 [tool.pytest.ini_options]
@@ -46,5 +47,5 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 known-first-party = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["aiobreaker"]
+module = ["aiobreaker", "aiokafka", "aiokafka.*"]
 ignore_missing_imports = true
