@@ -66,6 +66,17 @@ class BookReservationOutboxRepo:
         )
         await self.session.execute(stmt)
 
+    async def extend(self, book_reservation_id: UUID, claim_token: UUID, lease: timedelta) -> None:
+        stmt = (
+            update(book_reservation_outbox)
+            .where(
+                book_reservation_outbox.c.book_reservation_id == book_reservation_id,
+                book_reservation_outbox.c.claim_token == claim_token,
+            )
+            .values(next_attempt_at=func.now() + lease)
+        )
+        await self.session.execute(stmt)
+
     async def fail(self, book_reservation_id: UUID, claim_token: UUID) -> None:
         stmt = (
             update(book_reservation_outbox)

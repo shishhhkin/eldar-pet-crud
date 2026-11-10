@@ -412,6 +412,7 @@ def make_relay(
     *,
     pass_limit: int = BOOK_RESERVATION_RELAY_PASS_LIMIT,
     send_timeout_seconds: float = KAFKA_SEND_TIMEOUT_SECONDS,
+    lease_seconds: float = BOOK_RESERVATION_RELAY_LEASE_SECONDS,
 ) -> BookReservationRelay:
     return BookReservationRelay(
         UnitOfWork(session),
@@ -420,7 +421,7 @@ def make_relay(
         topic,
         pass_limit,
         BOOK_RESERVATION_RELAY_INTERVAL_SECONDS,
-        BOOK_RESERVATION_RELAY_LEASE_SECONDS,
+        lease_seconds,
         send_timeout_seconds,
     )
 

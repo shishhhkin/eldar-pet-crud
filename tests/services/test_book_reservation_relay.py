@@ -39,6 +39,8 @@ LEASE = timedelta(seconds=BOOK_RESERVATION_RELAY_LEASE_SECONDS)
 CLOCK_TOLERANCE = timedelta(seconds=1)
 HELD_SEND_TIMEOUT_SECONDS = 10.0
 OVERSIZED_TITLE = 'x' * 1_100_000
+SHORT_SEND_TIMEOUT_SECONDS = 0.2
+SHORT_LEASE_SECONDS = 1.0
 
 type Settle = Callable[[BookReservationOutboxRepo, UUID, UUID], Awaitable[object]]
 
@@ -229,8 +231,9 @@ async def test_claim_returns_payload_and_new_token(
         BookReservationOutboxRepo.complete,
         BookReservationOutboxRepo.release,
         BookReservationOutboxRepo.fail,
+        lambda outbox, reservation_id, token: outbox.extend(reservation_id, token, LEASE),
     ],
-    ids=['complete', 'release', 'fail'],
+    ids=['complete', 'release', 'fail', 'extend'],
 )
 async def test_stale_token_does_not_settle_reclaimed_reservation(
     reserve: Reserve, session_factory: async_sessionmaker[AsyncSession], settle: Settle
@@ -312,6 +315,34 @@ async def test_reservation_kept_during_outage_is_published_when_kafka_is_back(
 
     records = await read_messages(kafka_bootstrap, kafka_topic, 1)
     assert {key for key, _ in _decoded(records)} == {str(reservation.id)}
+
+
+async def test_relay_extends_lease_while_delivery_is_pending(
+    session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
+    kafka_producer: AIOKafkaProducer,
+    kafka_topic: str,
+    kafka_outage: KafkaOutage,
+    reserve: Reserve,
+) -> None:
+    await reserve()
+    await kafka_producer.partitions_for(kafka_topic)
+    relay = make_relay(
+        db_session,
+        kafka_producer,
+        kafka_topic,
+        send_timeout_seconds=SHORT_SEND_TIMEOUT_SECONDS,
+        lease_seconds=SHORT_LEASE_SECONDS,
+    )
+
+    with kafka_outage():
+        pending_pass = asyncio.create_task(relay.process_pass())
+        await asyncio.sleep(2 * SHORT_LEASE_SECONDS)
+        assert await _claim(session_factory) is None
+    async with asyncio.timeout(WAIT_TIMEOUT_SECONDS):
+        assert await pending_pass == 1
+
+    assert await _outbox(session_factory) == {}
 
 
 async def test_oversized_reservation_fails_and_pass_continues(

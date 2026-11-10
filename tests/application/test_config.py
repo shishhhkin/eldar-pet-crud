@@ -135,7 +135,7 @@ LOWER_BOUNDS: dict[str, object] = {
     'kafka_send_timeout_seconds': 0.001,
     'book_reservation_relay_interval_seconds': 0.001,
     'book_reservation_relay_pass_limit': 1,
-    'book_reservation_relay_lease_seconds': 0.002,
+    'book_reservation_relay_lease_seconds': 0.003,
 }
 
 UPPER_BOUNDS: dict[str, object] = {
@@ -230,14 +230,14 @@ def test_lease_longer_than_library_call_is_accepted(load_settings: LoadSettings)
     assert settings.membership_sync_lease_seconds == lease
 
 
-def test_relay_lease_not_longer_than_send_timeout_is_rejected(load_settings: LoadSettings) -> None:
+def test_relay_lease_within_two_send_timeouts_is_rejected(load_settings: LoadSettings) -> None:
     with pytest.raises(ValidationError, match='book_reservation_relay_lease_seconds must exceed'):
-        load_settings(kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='5')
+        load_settings(kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='10')
 
 
-def test_relay_lease_longer_than_send_timeout_is_accepted(load_settings: LoadSettings) -> None:
+def test_relay_lease_above_two_send_timeouts_is_accepted(load_settings: LoadSettings) -> None:
     settings = load_settings(
-        kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='5.5'
+        kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='10.5'
     )
 
-    assert settings.book_reservation_relay_lease_seconds == 5.5
+    assert settings.book_reservation_relay_lease_seconds == 10.5

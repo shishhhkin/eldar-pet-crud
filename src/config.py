@@ -108,8 +108,8 @@ class Settings(BaseSettings):
                 'membership_sync_lease_seconds must exceed the longest library call '
                 f'({library_call_seconds:g}s)'
             )
-        if self.book_reservation_relay_lease_seconds <= self.kafka_send_timeout_seconds:
+        if self.book_reservation_relay_lease_seconds <= 2 * self.kafka_send_timeout_seconds:
             raise ValueError(
-                'book_reservation_relay_lease_seconds must exceed kafka_send_timeout_seconds'
+                'book_reservation_relay_lease_seconds must exceed twice kafka_send_timeout_seconds'
             )
         return self

@@ -3,6 +3,8 @@ import logging
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import timedelta
+from typing import Any
+from uuid import UUID
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError, MessageSizeTooLargeError
@@ -68,11 +70,15 @@ class BookReservationRelay:
         claim_token = claimed.claim_token
         try:
             async with asyncio.timeout(self.send_timeout_seconds):
-                await self.producer.send_and_wait(
+                delivery = await self.producer.send(
                     self.topic,
                     key=str(reservation_id).encode(),
                     value=claimed.payload.encode(),
                 )
+            if not await self._delivered(delivery, reservation_id, claim_token):
+                logger.warning('book reservation left in flight on stop: id=%s', reservation_id)
+                return False
+            await delivery
         except MessageSizeTooLargeError as exc:
             logger.error('book reservation rejected by kafka: id=%s (%s)', reservation_id, exc)
             async with self.uow:
@@ -87,3 +93,17 @@ class BookReservationRelay:
             if not await self.outbox.complete(reservation_id, claim_token):
                 logger.warning('book reservation published after reclaim: id=%s', reservation_id)
         return True
+
+    async def _delivered(
+        self, delivery: asyncio.Future[Any], reservation_id: UUID, claim_token: UUID
+    ) -> bool:
+        while True:
+            done, _ = await asyncio.wait({delivery}, timeout=self.send_timeout_seconds)
+            if done:
+                return True
+            if self.stopping.is_set():
+                return False
+            logger.warning('book reservation delivery pending: id=%s', reservation_id)
+            async with self.uow:
+                await self.outbox.extend(reservation_id, claim_token, self.lease)
+            self.heartbeat()
