@@ -31,7 +31,7 @@ from testcontainers.community.redis import RedisContainer
 from src.application import get_app
 from src.clients.library import LibraryClient
 from src.infra.cache import Cache
-from src.infra.db import tx_session
+from src.infra.db import UnitOfWork, tx_session
 from src.models import Base, cache_invalidations
 from src.repository import (
     BookReservationOutboxRepo,
@@ -406,7 +406,7 @@ async def topic_size(bootstrap: str, topic: str) -> int:
 
 
 def make_relay(
-    session_factory: async_sessionmaker[AsyncSession],
+    session: AsyncSession,
     producer: AIOKafkaProducer,
     topic: str,
     *,
@@ -414,8 +414,8 @@ def make_relay(
     send_timeout_seconds: float = KAFKA_SEND_TIMEOUT_SECONDS,
 ) -> BookReservationRelay:
     return BookReservationRelay(
-        session_factory,
-        BookReservationOutboxRepo,
+        UnitOfWork(session),
+        BookReservationOutboxRepo(session),
         producer,
         topic,
         pass_limit,
@@ -427,11 +427,11 @@ def make_relay(
 
 @pytest.fixture
 def relay(
-    session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
     kafka_producer: AIOKafkaProducer,
     kafka_topic: str,
 ) -> BookReservationRelay:
-    return make_relay(session_factory, kafka_producer, kafka_topic)
+    return make_relay(db_session, kafka_producer, kafka_topic)
 
 
 type Reserve = Callable[..., Awaitable[BookReservationRead]]

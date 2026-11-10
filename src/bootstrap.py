@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
 from src.clients.library import LibraryClient
 from src.config import Settings
 from src.infra.cache import Cache
+from src.infra.db import UnitOfWork
 from src.repository import (
     BookReservationOutboxRepo,
     CacheInvalidationRepo,
@@ -114,13 +115,13 @@ def build_kafka_producer(settings: Settings) -> AIOKafkaProducer:
 
 def build_book_reservation_relay(
     settings: Settings,
-    session_factory: async_sessionmaker[AsyncSession],
+    session: AsyncSession,
     producer: AIOKafkaProducer,
     heartbeat: Callable[[], None] = lambda: None,
 ) -> BookReservationRelay:
     return BookReservationRelay(
-        session_factory,
-        BookReservationOutboxRepo,
+        UnitOfWork(session),
+        BookReservationOutboxRepo(session),
         producer,
         settings.kafka_book_reservations_topic,
         settings.book_reservation_relay_pass_limit,

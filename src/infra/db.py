@@ -46,6 +46,10 @@ class UnitOfWork:
         tb: TracebackType | None,
     ) -> None:
         if exc_type is None:
-            await self.session.commit()
+            try:
+                await self.session.commit()
+            except BaseException:
+                await self.session.rollback()
+                raise
         else:
             await self.session.rollback()

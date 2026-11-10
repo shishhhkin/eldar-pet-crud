@@ -6,9 +6,8 @@ from datetime import timedelta
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError, MessageSizeTooLargeError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.infra.db import tx_session
+from src.infra.db import UnitOfWork
 from src.repository import BookReservationOutboxRepo
 from src.repository.book_reservation_outbox import ClaimedOutboxEntry
 
@@ -18,8 +17,8 @@ logger = logging.getLogger(__name__)
 class BookReservationRelay:
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
-        outbox_factory: Callable[[AsyncSession], BookReservationOutboxRepo],
+        uow: UnitOfWork,
+        outbox: BookReservationOutboxRepo,
         producer: AIOKafkaProducer,
         topic: str,
         pass_limit: int,
@@ -28,8 +27,8 @@ class BookReservationRelay:
         send_timeout_seconds: float,
         heartbeat: Callable[[], None] = lambda: None,
     ) -> None:
-        self.session_factory = session_factory
-        self.outbox_factory = outbox_factory
+        self.uow = uow
+        self.outbox = outbox
         self.producer = producer
         self.topic = topic
         self.pass_limit = pass_limit
@@ -45,8 +44,8 @@ class BookReservationRelay:
     async def process_pass(self) -> int:
         processed = 0
         while processed < self.pass_limit and not self.stopping.is_set():
-            async with tx_session(self.session_factory) as session:
-                claimed = await self.outbox_factory(session).claim(self.lease)
+            async with self.uow:
+                claimed = await self.outbox.claim(self.lease)
             self.heartbeat()
             if claimed is None:
                 break
@@ -76,15 +75,15 @@ class BookReservationRelay:
                 )
         except MessageSizeTooLargeError as exc:
             logger.error('book reservation rejected by kafka: id=%s (%s)', reservation_id, exc)
-            async with tx_session(self.session_factory) as session:
-                await self.outbox_factory(session).fail(reservation_id, claim_token)
+            async with self.uow:
+                await self.outbox.fail(reservation_id, claim_token)
             return True
         except (KafkaError, TimeoutError) as exc:
             logger.warning('book reservation publish deferred: id=%s (%r)', reservation_id, exc)
-            async with tx_session(self.session_factory) as session:
-                await self.outbox_factory(session).release(reservation_id, claim_token)
+            async with self.uow:
+                await self.outbox.release(reservation_id, claim_token)
             return False
-        async with tx_session(self.session_factory) as session:
-            if not await self.outbox_factory(session).complete(reservation_id, claim_token):
+        async with self.uow:
+            if not await self.outbox.complete(reservation_id, claim_token):
                 logger.warning('book reservation published after reclaim: id=%s', reservation_id)
         return True

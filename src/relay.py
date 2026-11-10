@@ -24,9 +24,8 @@ async def serve() -> None:
     settings = Settings()  # type: ignore[call-arg]
     engine = build_engine(settings)
     producer = build_kafka_producer(settings)
-    relay = build_book_reservation_relay(
-        settings, build_session_factory(engine), producer, heartbeat_path().touch
-    )
+    session = build_session_factory(engine)()
+    relay = build_book_reservation_relay(settings, session, producer, heartbeat_path().touch)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, relay.stop)
@@ -40,6 +39,7 @@ async def serve() -> None:
                 await producer.stop()
         except TimeoutError:
             logger.warning('kafka producer stop timed out, unsent reservations stay in outbox')
+        await session.close()
         await engine.dispose()
     logger.info('book reservation relay stopped')
 

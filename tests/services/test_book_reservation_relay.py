@@ -3,7 +3,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Self
 from uuid import UUID
 
 import pytest
@@ -13,7 +13,7 @@ from httpx import AsyncClient
 from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.infra.db import tx_session
+from src.infra.db import UnitOfWork, tx_session
 from src.models import book_reservation_outbox
 from src.repository import BookReservationOutboxRepo
 from src.repository.book_reservation_outbox import ClaimedOutboxEntry
@@ -162,6 +162,7 @@ async def test_reservation_created_via_api_is_published_with_response_fields(
 
 async def test_pass_is_limited_by_pass_limit(
     session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
     kafka_producer: AIOKafkaProducer,
     kafka_topic: str,
     reserve: Reserve,
@@ -169,7 +170,7 @@ async def test_pass_is_limited_by_pass_limit(
     await reserve('Мастер и Маргарита')
     await reserve('Белая гвардия')
 
-    relay = make_relay(session_factory, kafka_producer, kafka_topic, pass_limit=1)
+    relay = make_relay(db_session, kafka_producer, kafka_topic, pass_limit=1)
     assert await relay.process_pass() == 1
 
     assert len(await _outbox(session_factory)) == 1
@@ -355,6 +356,7 @@ async def test_failed_reservation_is_not_retried(
 
 async def test_relay_with_expired_lease_does_not_complete_reclaimed_reservation(
     session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
     kafka_producer: AIOKafkaProducer,
     kafka_topic: str,
     kafka_bootstrap: str,
@@ -364,7 +366,7 @@ async def test_relay_with_expired_lease_does_not_complete_reclaimed_reservation(
 ) -> None:
     reservation = await reserve()
     stale_relay = make_relay(
-        session_factory,
+        db_session,
         kafka_producer,
         kafka_topic,
         send_timeout_seconds=HELD_SEND_TIMEOUT_SECONDS,
@@ -410,6 +412,7 @@ async def test_run_loop_publishes_reservations_added_later(
 
 async def test_stop_finishes_send_in_flight_and_leaves_rest_of_pass(
     session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
     kafka_producer: AIOKafkaProducer,
     kafka_topic: str,
     kafka_bootstrap: str,
@@ -418,7 +421,7 @@ async def test_stop_finishes_send_in_flight_and_leaves_rest_of_pass(
 ) -> None:
     first, second = await reserve('Мастер и Маргарита'), await reserve('Белая гвардия')
     relay = make_relay(
-        session_factory,
+        db_session,
         kafka_producer,
         kafka_topic,
         send_timeout_seconds=HELD_SEND_TIMEOUT_SECONDS,
@@ -437,7 +440,7 @@ async def test_stop_finishes_send_in_flight_and_leaves_rest_of_pass(
 
 
 async def test_run_logs_failed_iteration_and_keeps_publishing(
-    session_factory: async_sessionmaker[AsyncSession],
+    db_session: AsyncSession,
     kafka_producer: AIOKafkaProducer,
     kafka_topic: str,
     kafka_bootstrap: str,
@@ -445,18 +448,19 @@ async def test_run_logs_failed_iteration_and_keeps_publishing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     reservation = await reserve()
-    calls = 0
 
-    def failing_once_outbox_factory(session: AsyncSession) -> BookReservationOutboxRepo:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError('unexpected failure')
-        return BookReservationOutboxRepo(session)
+    class FailingOnceUnitOfWork(UnitOfWork):
+        failed = False
+
+        async def __aenter__(self) -> Self:
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError('unexpected failure')
+            return await super().__aenter__()
 
     relay = BookReservationRelay(
-        session_factory,
-        failing_once_outbox_factory,
+        FailingOnceUnitOfWork(db_session),
+        BookReservationOutboxRepo(db_session),
         kafka_producer,
         kafka_topic,
         BOOK_RESERVATION_RELAY_PASS_LIMIT,
