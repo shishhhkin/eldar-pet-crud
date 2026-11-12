@@ -16,6 +16,7 @@ from src.bootstrap import (
 )
 from src.config import Settings
 from src.controllers.authors import router as authors_router
+from src.controllers.book_reservations import router as book_reservations_router
 from src.controllers.genres import router as genres_router
 from src.controllers.users import router as users_router
 from src.exceptions.handlers import register_exception_handlers
@@ -83,6 +84,7 @@ def get_app() -> FastAPI:
     v1_router.include_router(users_router)
     v1_router.include_router(authors_router)
     v1_router.include_router(genres_router)
+    v1_router.include_router(book_reservations_router)
     app.include_router(v1_router)
 
     return app

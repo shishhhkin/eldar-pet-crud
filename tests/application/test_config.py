@@ -32,6 +32,12 @@ BASE_ENV = {
     'membership_sync_interval_seconds': '5',
     'membership_sync_pass_limit': '100',
     'membership_sync_lease_seconds': '60',
+    'kafka_bootstrap_servers': 'localhost:9092',
+    'kafka_book_reservations_topic': 'book-reservations',
+    'kafka_send_timeout_seconds': '3',
+    'book_reservation_relay_interval_seconds': '1',
+    'book_reservation_relay_pass_limit': '100',
+    'book_reservation_relay_lease_seconds': '30',
 }
 
 NON_EMPTY = ('postgres_user', 'postgres_password', 'postgres_host', 'postgres_db', 'redis_host')
@@ -41,6 +47,7 @@ SECONDS_UP_TO_MINUTE = (
     'library_timeout_seconds',
     'library_retry_base_delay_seconds',
     'library_retry_max_delay_seconds',
+    'kafka_send_timeout_seconds',
 )
 SECONDS_UP_TO_DAY = (
     'cache_invalidation_retry_seconds',
@@ -48,8 +55,26 @@ SECONDS_UP_TO_DAY = (
     'library_breaker_reset_seconds',
     'membership_sync_interval_seconds',
     'membership_sync_lease_seconds',
+    'book_reservation_relay_interval_seconds',
+    'book_reservation_relay_lease_seconds',
 )
-BATCH_LIMITS = ('cache_invalidation_batch_size', 'membership_sync_pass_limit')
+BATCH_LIMITS = (
+    'cache_invalidation_batch_size',
+    'membership_sync_pass_limit',
+    'book_reservation_relay_pass_limit',
+)
+INVALID_BOOTSTRAP_SERVERS = (
+    '',
+    'localhost',
+    'localhost:',
+    ':9092',
+    'localhost:x',
+    'localhost:0',
+    'localhost:65536',
+    'localhost:9092,',
+    'localhost:9092, other:9092',
+)
+INVALID_TOPICS = ('', 'book reservations', 'бронь', 'book/reservations', 'a' * 250)
 
 INVALID_VALUES = [
     *[(name, '') for name in NON_EMPTY],
@@ -77,6 +102,8 @@ INVALID_VALUES = [
     ('library_retry_attempts', '11'),
     ('library_breaker_failure_threshold', '0'),
     ('library_breaker_failure_threshold', '101'),
+    *[('kafka_bootstrap_servers', value) for value in INVALID_BOOTSTRAP_SERVERS],
+    *[('kafka_book_reservations_topic', value) for value in INVALID_TOPICS],
 ]
 
 LOWER_BOUNDS: dict[str, object] = {
@@ -103,6 +130,12 @@ LOWER_BOUNDS: dict[str, object] = {
     'membership_sync_interval_seconds': 0.001,
     'membership_sync_pass_limit': 1,
     'membership_sync_lease_seconds': 0.002,
+    'kafka_bootstrap_servers': 'h:1',
+    'kafka_book_reservations_topic': 'a',
+    'kafka_send_timeout_seconds': 0.001,
+    'book_reservation_relay_interval_seconds': 0.001,
+    'book_reservation_relay_pass_limit': 1,
+    'book_reservation_relay_lease_seconds': 0.003,
 }
 
 UPPER_BOUNDS: dict[str, object] = {
@@ -124,6 +157,12 @@ UPPER_BOUNDS: dict[str, object] = {
     'membership_sync_interval_seconds': 86400,
     'membership_sync_pass_limit': 1000,
     'membership_sync_lease_seconds': 86400,
+    'kafka_bootstrap_servers': 'kafka-1.internal:65535,kafka-2.internal:9092',
+    'kafka_book_reservations_topic': 'a' * 249,
+    'kafka_send_timeout_seconds': 60,
+    'book_reservation_relay_interval_seconds': 86400,
+    'book_reservation_relay_pass_limit': 1000,
+    'book_reservation_relay_lease_seconds': 86400,
 }
 
 LIBRARY_CALL_ENV = {
@@ -189,3 +228,16 @@ def test_lease_longer_than_library_call_is_accepted(load_settings: LoadSettings)
     settings = load_settings(**LIBRARY_CALL_ENV, membership_sync_lease_seconds=str(lease))
 
     assert settings.membership_sync_lease_seconds == lease
+
+
+def test_relay_lease_within_two_send_timeouts_is_rejected(load_settings: LoadSettings) -> None:
+    with pytest.raises(ValidationError, match='book_reservation_relay_lease_seconds must exceed'):
+        load_settings(kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='10')
+
+
+def test_relay_lease_above_two_send_timeouts_is_accepted(load_settings: LoadSettings) -> None:
+    settings = load_settings(
+        kafka_send_timeout_seconds='5', book_reservation_relay_lease_seconds='10.5'
+    )
+
+    assert settings.book_reservation_relay_lease_seconds == 10.5

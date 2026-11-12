@@ -136,3 +136,16 @@ USER_READ_EXAMPLE: dict[str, Any] = {
     'profile': PROFILE_READ_EXAMPLE,
     'membership': MEMBERSHIP_READ_EXAMPLE,
 }
+
+BOOK_RESERVATION_CREATE_EXAMPLES: dict[str, Any] = {
+    'reservation': {
+        'summary': 'Бронь книги',
+        'value': {'title': 'Мастер и Маргарита', 'author': 'Михаил Булгаков'},
+    },
+}
+BOOK_RESERVATION_READ_EXAMPLE: dict[str, Any] = {
+    'id': _ID_EXAMPLE,
+    'title': 'Мастер и Маргарита',
+    'author': 'Михаил Булгаков',
+    'created_at': '2026-01-15T10:30:00Z',
+}

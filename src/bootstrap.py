@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import httpx
 from aiobreaker import CircuitBreaker
+from aiokafka import AIOKafkaProducer
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
@@ -16,7 +17,14 @@ from sqlalchemy.ext.asyncio import (
 from src.clients.library import LibraryClient
 from src.config import Settings
 from src.infra.cache import Cache
-from src.repository import CacheInvalidationRepo, PendingMembershipRepo, UserMembershipRepo
+from src.infra.db import UnitOfWork
+from src.repository import (
+    BookReservationOutboxRepo,
+    CacheInvalidationRepo,
+    PendingMembershipRepo,
+    UserMembershipRepo,
+)
+from src.services.book_reservation_relay import BookReservationRelay
 from src.services.invalidation_outbox import InvalidationOutbox
 from src.services.membership_service import MembershipService
 from src.utils.resilience import RetryPolicy
@@ -93,5 +101,32 @@ def build_membership_service(
         settings.membership_sync_pass_limit,
         settings.membership_sync_interval_seconds,
         settings.membership_sync_lease_seconds,
+        heartbeat,
+    )
+
+
+def build_kafka_producer(settings: Settings) -> AIOKafkaProducer:
+    return AIOKafkaProducer(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
+        enable_idempotence=True,
+        acks='all',
+    )
+
+
+def build_book_reservation_relay(
+    settings: Settings,
+    session: AsyncSession,
+    producer: AIOKafkaProducer,
+    heartbeat: Callable[[], None] = lambda: None,
+) -> BookReservationRelay:
+    return BookReservationRelay(
+        UnitOfWork(session),
+        BookReservationOutboxRepo(session),
+        producer,
+        settings.kafka_book_reservations_topic,
+        settings.book_reservation_relay_pass_limit,
+        settings.book_reservation_relay_interval_seconds,
+        settings.book_reservation_relay_lease_seconds,
+        settings.kafka_send_timeout_seconds,
         heartbeat,
     )

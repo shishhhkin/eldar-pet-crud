@@ -10,6 +10,7 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 ROOT = Path(__file__).resolve().parent.parent
+WORKER_MODULE = 'src.worker'
 STARTED = 'membership worker started'
 STOPPED = 'membership worker stopped'
 PROCESS_TIMEOUT_SECONDS = 15.0
@@ -68,11 +69,11 @@ class WorkerProcess:
             await self.process.wait()
 
 
-async def healthcheck(env: dict[str, str]) -> int:
+async def healthcheck(env: dict[str, str], module: str = WORKER_MODULE) -> int:
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         '-m',
-        'src.worker',
+        module,
         'healthcheck',
         cwd=ROOT,
         env=env,
@@ -83,12 +84,30 @@ async def healthcheck(env: dict[str, str]) -> int:
         return await process.wait()
 
 
-@asynccontextmanager
-async def running_worker(env: dict[str, str]) -> AsyncIterator[WorkerProcess]:
+async def run_until_exit(env: dict[str, str], module: str) -> tuple[int, str]:
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         '-m',
-        'src.worker',
+        module,
+        cwd=ROOT,
+        env=env,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    async with asyncio.timeout(PROCESS_TIMEOUT_SECONDS):
+        _, stderr = await process.communicate()
+    assert process.returncode is not None
+    return process.returncode, stderr.decode()
+
+
+@asynccontextmanager
+async def running_worker(
+    env: dict[str, str], module: str = WORKER_MODULE, started: str = STARTED
+) -> AsyncIterator[WorkerProcess]:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        '-m',
+        module,
         cwd=ROOT,
         env=env,
         stdout=asyncio.subprocess.DEVNULL,
@@ -96,7 +115,7 @@ async def running_worker(env: dict[str, str]) -> AsyncIterator[WorkerProcess]:
     )
     worker = WorkerProcess(process)
     try:
-        await worker.wait_for(STARTED)
+        await worker.wait_for(started)
         yield worker
     finally:
         if process.returncode is None:

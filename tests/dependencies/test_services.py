@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.clients.library import LibraryClient
 from src.dependencies.authors import AuthorServiceTxDep
+from src.dependencies.book_reservations import BookReservationServiceTxDep
 from src.dependencies.genres import GenreServiceTxDep
 from src.dependencies.users import UserServiceTxDep
 from src.infra.cache import Cache
@@ -27,7 +28,10 @@ async def test_write_services_record_invalidations_in_data_session(
 
     @app.get('/sessions')
     async def sessions(
-        authors: AuthorServiceTxDep, genres: GenreServiceTxDep, users: UserServiceTxDep
+        authors: AuthorServiceTxDep,
+        genres: GenreServiceTxDep,
+        users: UserServiceTxDep,
+        reservations: BookReservationServiceTxDep,
     ) -> dict[str, bool]:
         return {
             'authors': authors.invalidations.session is authors.repo.session,
@@ -35,6 +39,7 @@ async def test_write_services_record_invalidations_in_data_session(
             'users': users.invalidations.session is users.repo.session,
             'user_pending_memberships': users.pending_memberships.session is users.repo.session,
             'user_uow': users.uow.session is users.repo.session,
+            'book_reservation_outbox': reservations.outbox.session is reservations.repo.session,
         }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
@@ -46,4 +51,5 @@ async def test_write_services_record_invalidations_in_data_session(
         'users': True,
         'user_pending_memberships': True,
         'user_uow': True,
+        'book_reservation_outbox': True,
     }

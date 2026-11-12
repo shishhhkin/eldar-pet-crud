@@ -1,11 +1,12 @@
 import asyncio
 from collections.abc import AsyncIterator
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
@@ -13,6 +14,7 @@ from testcontainers.community.redis import RedisContainer
 from src.application import get_app
 from src.infra.cache import TOMBSTONE
 from src.infra.db import tx_session
+from src.models import book_reservation_outbox
 from src.repository import CacheInvalidationRepo
 from tests.conftest import PauseRedisWrites, closed_port, outbox_keys
 
@@ -37,6 +39,7 @@ def containers_env(
     monkeypatch.setenv('redis_port', str(redis_container.get_exposed_port(6379)))
     monkeypatch.setenv('cache_invalidation_retry_seconds', str(FAST_RETRY_SECONDS))
     monkeypatch.setenv('library_url', f'http://127.0.0.1:{closed_port()}/v1')
+    monkeypatch.setenv('kafka_bootstrap_servers', f'127.0.0.1:{closed_port()}')
 
 
 @pytest.fixture
@@ -142,3 +145,17 @@ async def test_started_app_creates_user_while_library_unreachable(
 
     assert response.status_code == 201
     assert response.json()['membership'] is None
+
+
+async def test_started_app_creates_book_reservation_while_kafka_unreachable(
+    running_client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    response = await running_client.post(
+        '/book-reservations', json={'title': 'Мастер и Маргарита', 'author': 'Михаил Булгаков'}
+    )
+
+    assert response.status_code == 201
+    async with session_factory() as session:
+        stmt = select(book_reservation_outbox.c.book_reservation_id)
+        assert list((await session.execute(stmt)).scalars()) == [UUID(response.json()['id'])]
